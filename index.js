@@ -5,9 +5,7 @@ app.use(express.json());
 
 app.post('/check-availability', async (req, res) => {
   const { company, token, app_token, datum, uhrzeit, service_id, provider_id, dauer } = req.body;
-
   try {
-    // Verfügbarkeit prüfen
     const response = await axios.post('https://user-api.simplybook.me/admin/', {
       jsonrpc: '2.0',
       method: 'getAvailableTimeIntervals',
@@ -25,9 +23,7 @@ app.post('/check-availability', async (req, res) => {
     const uhrzeit_min = timeToMinutes(uhrzeit);
     const end_min = uhrzeit_min + dauer;
 
-    // Verfügbare Mitarbeiter finden
     let verfuegbare_mitarbeiter = [];
-
     for (const [provider, intervals] of Object.entries(slots[datum] || {})) {
       for (const interval of intervals) {
         const from_min = timeToMinutes(interval.from);
@@ -43,14 +39,11 @@ app.post('/check-availability', async (req, res) => {
       return res.json({ verfuegbar: false, nachricht: 'Keine Mitarbeiter verfügbar' });
     }
 
-    // Wenn provider_id gewählt → prüfen ob verfügbar
-    if (provider_id && !verfuegbare_mitarbeiter.includes(provider_id)) {
+    if (provider_id && !verfuegbare_mitarbeiter.includes(parseInt(provider_id))) {
       return res.json({ verfuegbar: false, nachricht: 'Gewählter Mitarbeiter nicht verfügbar' });
     }
 
-    // Ersten verfügbaren Mitarbeiter nehmen wenn keiner gewählt
-    const gewaehlter_provider = provider_id || verfuegbare_mitarbeiter[0];
-
+    const gewaehlter_provider = provider_id ? parseInt(provider_id) : verfuegbare_mitarbeiter[0];
     return res.json({ 
       verfuegbar: true, 
       provider_id: gewaehlter_provider,
