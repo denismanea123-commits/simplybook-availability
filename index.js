@@ -22,8 +22,8 @@ app.post('/check-availability', async (req, res) => {
     const slots = response.data.result;
     const uhrzeit_min = timeToMinutes(uhrzeit);
     const end_min = uhrzeit_min + dauer;
-
     let verfuegbare_mitarbeiter = [];
+
     for (const [provider, intervals] of Object.entries(slots[datum] || {})) {
       for (const interval of intervals) {
         const from_min = timeToMinutes(interval.from);
@@ -44,10 +44,10 @@ app.post('/check-availability', async (req, res) => {
     }
 
     const gewaehlter_provider = provider_id ? parseInt(provider_id) : verfuegbare_mitarbeiter[0];
+
     return res.json({ 
       verfuegbar: true, 
-      provider_id: gewaehlter_provider,
-      alle_verfuegbaren: verfuegbare_mitarbeiter
+      provider_id: gewaehlter_provider
     });
 
   } catch (error) {
