@@ -75,7 +75,6 @@ app.post('/check-availability', async (req, res) => {
 app.post('/get-available-slots', async (req, res) => {
   const { company, token, app_token, datum, service_id, dauer, provider_id, uhrzeit } = req.body;
   try {
-    // Alle Mitarbeiter holen
     const response = await axios.post('https://user-api.simplybook.me/admin/', {
       jsonrpc: '2.0',
       method: 'getAvailableTimeIntervals',
@@ -92,20 +91,41 @@ app.post('/get-available-slots', async (req, res) => {
     const slots = response.data.result;
     const tagesslots = slots[datum] || {};
 
-    // Freie Zeiten für gewünschten Mitarbeiter
+    // Freie Slots + Blöcke für gewünschten Mitarbeiter
     let freie_zeiten_gewuenscht = [];
     if (provider_id && tagesslots[provider_id]) {
-      const freie_zeiten = new Set();
+      const einzelne_slots = [];
+      const bloecke = [];
+
       for (const interval of tagesslots[provider_id]) {
         const from_min = timeToMinutes(interval.from);
         const to_min = timeToMinutes(interval.to);
+        const dauer_interval = to_min - from_min;
+
+        if (dauer_interval < dauer) continue;
+
+        // Zähle wie viele Slots passen
+        let anzahl_slots = 0;
         let current = from_min;
         while (current + dauer <= to_min) {
-          freie_zeiten.add(minutesToTime(current));
-          current += 30;
+          anzahl_slots++;
+          current += dauer;
+        }
+
+        if (anzahl_slots <= 3) {
+          // Wenige Slots → einzeln anzeigen
+          current = from_min;
+          while (current + dauer <= to_min) {
+            einzelne_slots.push(minutesToTime(current));
+            current += dauer;
+          }
+        } else {
+          // Viele Slots → als Block anzeigen
+          bloecke.push(`ab ${interval.from} bis ${interval.to} Uhr`);
         }
       }
-      freie_zeiten_gewuenscht = [...freie_zeiten].sort().slice(0, 5);
+
+      freie_zeiten_gewuenscht = [...einzelne_slots, ...bloecke];
     }
 
     // Andere Mitarbeiter die zur gewünschten Uhrzeit frei sind
