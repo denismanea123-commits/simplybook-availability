@@ -3,6 +3,18 @@ const axios = require('axios');
 const app = express();
 app.use(express.json());
 
+function timeToMinutes(time) {
+  const [h, m] = time.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function minutesToTime(minutes) {
+  const h = Math.floor(minutes / 60).toString().padStart(2, '0');
+  const m = (minutes % 60).toString().padStart(2, '0');
+  return `${h}:${m}:00`;
+}
+
+// Endpoint 1: Verfügbarkeit prüfen
 app.post('/check-availability', async (req, res) => {
   const { company, token, app_token, datum, uhrzeit, service_id, provider_id, dauer } = req.body;
   try {
@@ -55,10 +67,50 @@ app.post('/check-availability', async (req, res) => {
   }
 });
 
-function timeToMinutes(time) {
-  const [h, m] = time.split(':').map(Number);
-  return h * 60 + m;
-}
+// Endpoint 2: Freie Slots holen
+app.post('/get-available-slots', async (req, res) => {
+  const { company, token, app_token, datum, service_id, dauer } = req.body;
+  try {
+    const response = await axios.post('https://user-api.simplybook.me/admin/', {
+      jsonrpc: '2.0',
+      method: 'getAvailableTimeIntervals',
+      params: [datum, datum, service_id, null],
+      id: 1
+    }, {
+      headers: {
+        'X-Company-Login': company,
+        'X-User-Token': token,
+        'X-Application-Token': app_token
+      }
+    });
+
+    const slots = response.data.result;
+    const freie_zeiten = new Set();
+
+    for (const intervals of Object.values(slots[datum] || {})) {
+      for (const interval of intervals) {
+        const from_min = timeToMinutes(interval.from);
+        const to_min = timeToMinutes(interval.to);
+        let current = from_min;
+        while (current + dauer <= to_min) {
+          freie_zeiten.add(minutesToTime(current));
+          current += 30;
+        }
+      }
+    }
+
+    const zeiten_liste = [...freie_zeiten].sort();
+
+    if (zeiten_liste.length === 0) {
+      return res.json({ verfuegbar: false, freie_zeiten: [] });
+    }
+
+    return res.json({ verfuegbar: true, freie_zeiten: zeiten_liste.slice(0, 5) });
+
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server läuft auf Port ${PORT}`));
