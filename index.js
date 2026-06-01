@@ -11,10 +11,16 @@ function timeToMinutes(time) {
 function minutesToTime(minutes) {
   const h = Math.floor(minutes / 60).toString().padStart(2, '0');
   const m = (minutes % 60).toString().padStart(2, '0');
-  return `${h}:${m}:00`;
+  return `${h}:${m}`;
 }
 
-// Endpoint 1: Verfügbarkeit prüfen
+const MITARBEITER = {
+  2: 'Avni',
+  3: 'Besa',
+  4: 'Lidia',
+  5: 'Eddy'
+};
+
 app.post('/check-availability', async (req, res) => {
   const { company, token, app_token, datum, uhrzeit, service_id, provider_id, dauer } = req.body;
   try {
@@ -51,26 +57,25 @@ app.post('/check-availability', async (req, res) => {
       return res.json({ verfuegbar: false, nachricht: 'Keine Mitarbeiter verfügbar' });
     }
 
-    if (provider_id && !verfuegbare_mitarbeiter.includes(parseInt(provider_id))) {
-      return res.json({ verfuegbar: false, nachricht: 'Gewählter Mitarbeiter nicht verfügbar' });
+    if (provider_id) {
+      if (verfuegbare_mitarbeiter.includes(parseInt(provider_id))) {
+        return res.json({ verfuegbar: true, provider_id: parseInt(provider_id) });
+      } else {
+        return res.json({ verfuegbar: false, nachricht: 'Gewählter Mitarbeiter nicht verfügbar' });
+      }
     }
 
-    const gewaehlter_provider = provider_id ? parseInt(provider_id) : verfuegbare_mitarbeiter[0];
-
-    return res.json({ 
-      verfuegbar: true, 
-      provider_id: gewaehlter_provider
-    });
+    return res.json({ verfuegbar: true, provider_id: verfuegbare_mitarbeiter[0] });
 
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
 });
 
-// Endpoint 2: Freie Slots holen
 app.post('/get-available-slots', async (req, res) => {
-  const { company, token, app_token, datum, service_id, dauer } = req.body;
+  const { company, token, app_token, datum, service_id, dauer, provider_id, uhrzeit } = req.body;
   try {
+    // Alle Mitarbeiter holen
     const response = await axios.post('https://user-api.simplybook.me/admin/', {
       jsonrpc: '2.0',
       method: 'getAvailableTimeIntervals',
@@ -85,10 +90,13 @@ app.post('/get-available-slots', async (req, res) => {
     });
 
     const slots = response.data.result;
-    const freie_zeiten = new Set();
+    const tagesslots = slots[datum] || {};
 
-    for (const intervals of Object.values(slots[datum] || {})) {
-      for (const interval of intervals) {
+    // Freie Zeiten für gewünschten Mitarbeiter
+    let freie_zeiten_gewuenscht = [];
+    if (provider_id && tagesslots[provider_id]) {
+      const freie_zeiten = new Set();
+      for (const interval of tagesslots[provider_id]) {
         const from_min = timeToMinutes(interval.from);
         const to_min = timeToMinutes(interval.to);
         let current = from_min;
@@ -97,15 +105,33 @@ app.post('/get-available-slots', async (req, res) => {
           current += 30;
         }
       }
+      freie_zeiten_gewuenscht = [...freie_zeiten].sort().slice(0, 5);
     }
 
-    const zeiten_liste = [...freie_zeiten].sort();
-
-    if (zeiten_liste.length === 0) {
-      return res.json({ verfuegbar: false, freie_zeiten: [] });
+    // Andere Mitarbeiter die zur gewünschten Uhrzeit frei sind
+    let andere_mitarbeiter = [];
+    if (uhrzeit) {
+      const uhrzeit_min = timeToMinutes(uhrzeit);
+      const end_min = uhrzeit_min + dauer;
+      for (const [prov_id, intervals] of Object.entries(tagesslots)) {
+        if (parseInt(prov_id) === parseInt(provider_id)) continue;
+        for (const interval of intervals) {
+          const from_min = timeToMinutes(interval.from);
+          const to_min = timeToMinutes(interval.to);
+          if (from_min <= uhrzeit_min && to_min >= end_min) {
+            const name = MITARBEITER[parseInt(prov_id)] || `Mitarbeiter ${prov_id}`;
+            andere_mitarbeiter.push(name);
+            break;
+          }
+        }
+      }
     }
 
-    return res.json({ verfuegbar: true, freie_zeiten: zeiten_liste.slice(0, 5) });
+    return res.json({
+      verfuegbar: freie_zeiten_gewuenscht.length > 0,
+      freie_zeiten: freie_zeiten_gewuenscht,
+      andere_mitarbeiter: andere_mitarbeiter
+    });
 
   } catch (error) {
     return res.status(500).json({ error: error.message });
