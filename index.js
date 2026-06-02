@@ -27,7 +27,7 @@ app.post('/check-availability', async (req, res) => {
     const response = await axios.post('https://user-api.simplybook.me/admin/', {
       jsonrpc: '2.0',
       method: 'getAvailableTimeIntervals',
-      params: [datum, datum, service_id, provider_id || null],
+      params: [datum, datum, service_id, null],
       id: 1
     }, {
       headers: {
@@ -38,34 +38,103 @@ app.post('/check-availability', async (req, res) => {
     });
 
     const slots = response.data.result;
+    const tagesslots = slots[datum] || {};
     const uhrzeit_min = timeToMinutes(uhrzeit);
     const end_min = uhrzeit_min + dauer;
-    let verfuegbare_mitarbeiter = [];
 
-    for (const [provider, intervals] of Object.entries(slots[datum] || {})) {
+    // Alle verfügbaren Mitarbeiter zur gewünschten Zeit
+    let verfuegbare_mitarbeiter = [];
+    for (const [provider, intervals] of Object.entries(tagesslots)) {
       for (const interval of intervals) {
         const from_min = timeToMinutes(interval.from);
         const to_min = timeToMinutes(interval.to);
         if (from_min <= uhrzeit_min && to_min >= end_min) {
-          verfuegbare_mitarbeiter.push(parseInt(provider));
+          verfuegbare_mitarbeiter.push({
+            id: parseInt(provider),
+            name: MITARBEITER[parseInt(provider)] || `Mitarbeiter ${provider}`
+          });
           break;
         }
       }
     }
 
+    // Wenn kein Mitarbeiter frei → freie Zeiten zurückgeben
     if (verfuegbare_mitarbeiter.length === 0) {
-      return res.json({ verfuegbar: false, nachricht: 'Keine Mitarbeiter verfügbar' });
+      let freie_zeiten = [];
+      for (const [provider, intervals] of Object.entries(tagesslots)) {
+        for (const interval of intervals) {
+          const from_min = timeToMinutes(interval.from);
+          const to_min = timeToMinutes(interval.to);
+          let current = from_min;
+          while (current + dauer <= to_min) {
+            const zeit = minutesToTime(current);
+            if (!freie_zeiten.includes(zeit)) freie_zeiten.push(zeit);
+            current += 15;
+          }
+        }
+      }
+      freie_zeiten.sort();
+      return res.json({
+        verfuegbar: false,
+        verfuegbare_mitarbeiter: [],
+        freie_zeiten: freie_zeiten.slice(0, 8)
+      });
     }
 
+    // Wenn spezifischer Mitarbeiter gewünscht
     if (provider_id) {
-      if (verfuegbare_mitarbeiter.includes(parseInt(provider_id))) {
-        return res.json({ verfuegbar: true, provider_id: parseInt(provider_id) });
+      const gewuenscht = verfuegbare_mitarbeiter.find(m => m.id === parseInt(provider_id));
+      
+      if (gewuenscht) {
+        // Gewünschter Mitarbeiter ist frei
+        return res.json({
+          verfuegbar: true,
+          verfuegbare_mitarbeiter: [gewuenscht],
+          freie_zeiten: []
+        });
       } else {
-        return res.json({ verfuegbar: false, nachricht: 'Gewählter Mitarbeiter nicht verfügbar' });
+        // Gewünschter Mitarbeiter ist NICHT frei
+        // Freie Zeiten des gewünschten Mitarbeiters berechnen
+        let freie_zeiten_mitarbeiter = [];
+        if (tagesslots[provider_id]) {
+          const einzelne = [];
+          const bloecke = [];
+          for (const interval of tagesslots[provider_id]) {
+            const from_min = timeToMinutes(interval.from);
+            const to_min = timeToMinutes(interval.to);
+            const dauer_interval = to_min - from_min;
+            if (dauer_interval < dauer) continue;
+            let anzahl = 0;
+            let current = from_min;
+            while (current + dauer <= to_min) { anzahl++; current += dauer; }
+            if (anzahl <= 4) {
+              current = from_min;
+              while (current + dauer <= to_min) {
+                einzelne.push(minutesToTime(current));
+                current += dauer;
+              }
+            } else {
+              bloecke.push(`ab ${minutesToTime(from_min)} bis ${minutesToTime(to_min)} Uhr`);
+            }
+          }
+          freie_zeiten_mitarbeiter = [...einzelne, ...bloecke];
+        }
+
+        return res.json({
+          verfuegbar: false,
+          gewuenschter_mitarbeiter: MITARBEITER[parseInt(provider_id)] || `Mitarbeiter ${provider_id}`,
+          freie_zeiten_mitarbeiter: freie_zeiten_mitarbeiter,
+          andere_verfuegbare_mitarbeiter: verfuegbare_mitarbeiter
+        });
       }
     }
 
-    return res.json({ verfuegbar: true, provider_id: verfuegbare_mitarbeiter[0] });
+    // Kein spezifischer Mitarbeiter → alle verfügbaren zurückgeben
+    return res.json({
+      verfuegbar: true,
+      verfuegbare_mitarbeiter: verfuegbare_mitarbeiter,
+      freie_zeiten: []
+    });
 
   } catch (error) {
     return res.status(500).json({ error: error.message });
@@ -91,44 +160,31 @@ app.post('/get-available-slots', async (req, res) => {
     const slots = response.data.result;
     const tagesslots = slots[datum] || {};
 
-    // Freie Slots + Blöcke für gewünschten Mitarbeiter
     let freie_zeiten_gewuenscht = [];
     if (provider_id && tagesslots[provider_id]) {
       const einzelne_slots = [];
       const bloecke = [];
-
       for (const interval of tagesslots[provider_id]) {
         const from_min = timeToMinutes(interval.from);
         const to_min = timeToMinutes(interval.to);
         const dauer_interval = to_min - from_min;
-
         if (dauer_interval < dauer) continue;
-
-        // Zähle wie viele Slots passen
         let anzahl_slots = 0;
         let current = from_min;
-        while (current + dauer <= to_min) {
-          anzahl_slots++;
-          current += dauer;
-        }
-
+        while (current + dauer <= to_min) { anzahl_slots++; current += dauer; }
         if (anzahl_slots <= 3) {
-          // Wenige Slots → einzeln anzeigen
           current = from_min;
           while (current + dauer <= to_min) {
             einzelne_slots.push(minutesToTime(current));
             current += dauer;
           }
         } else {
-          // Viele Slots → als Block anzeigen
-          bloecke.push(`ab ${interval.from} bis ${interval.to} Uhr`);
+          bloecke.push(`ab ${minutesToTime(from_min)} bis ${minutesToTime(to_min)} Uhr`);
         }
       }
-
       freie_zeiten_gewuenscht = [...einzelne_slots, ...bloecke];
     }
 
-    // Andere Mitarbeiter die zur gewünschten Uhrzeit frei sind
     let andere_mitarbeiter = [];
     if (uhrzeit) {
       const uhrzeit_min = timeToMinutes(uhrzeit);
@@ -139,8 +195,7 @@ app.post('/get-available-slots', async (req, res) => {
           const from_min = timeToMinutes(interval.from);
           const to_min = timeToMinutes(interval.to);
           if (from_min <= uhrzeit_min && to_min >= end_min) {
-            const name = MITARBEITER[parseInt(prov_id)] || `Mitarbeiter ${prov_id}`;
-            andere_mitarbeiter.push(name);
+            andere_mitarbeiter.push(MITARBEITER[parseInt(prov_id)] || `Mitarbeiter ${prov_id}`);
             break;
           }
         }
