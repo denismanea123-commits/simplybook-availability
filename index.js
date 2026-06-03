@@ -32,12 +32,12 @@ function getFreieZeiten(intervals, dauer) {
     if (dauer_interval < dauer) continue;
     let anzahl = 0;
     let current = from_min;
-    while (current + dauer <= to_min) { anzahl++; current += dauer; }
+    while (current + dauer <= to_min) { anzahl++; current += 15; }
     if (anzahl <= 4) {
       current = from_min;
       while (current + dauer <= to_min) {
         einzelne.push(minutesToTime(current));
-        current += dauer;
+        current += 15;
       }
     } else {
       bloecke.push(`ab ${minutesToTime(from_min)} bis ${minutesToTime(to_min)} Uhr`);
@@ -62,13 +62,20 @@ app.post('/check-availability', async (req, res) => {
       }
     });
 
+    if (response.data.error) {
+      return res.status(500).json({ error: 'SimplyBook Fehler', detail: response.data.error });
+    }
+
     const slots = response.data.result;
+    if (!slots) {
+      return res.status(500).json({ error: 'Keine Daten von SimplyBook', raw: response.data });
+    }
+
     const tagesslots = slots[datum] || {};
     const uhrzeit_min = timeToMinutes(uhrzeit);
     const dauer_int = parseInt(dauer);
     const end_min = uhrzeit_min + dauer_int;
 
-    // Alle Mitarbeiter die zur gewünschten Zeit frei sind
     let verfuegbare_mitarbeiter = [];
     for (const [provider, intervals] of Object.entries(tagesslots)) {
       for (const interval of intervals) {
@@ -159,7 +166,15 @@ app.post('/get-available-slots', async (req, res) => {
       }
     });
 
+    if (response.data.error) {
+      return res.status(500).json({ error: 'SimplyBook Fehler', detail: response.data.error });
+    }
+
     const slots = response.data.result;
+    if (!slots) {
+      return res.status(500).json({ error: 'Keine Daten', raw: response.data });
+    }
+
     const tagesslots = slots[datum] || {};
     const dauer_int = parseInt(dauer);
 
