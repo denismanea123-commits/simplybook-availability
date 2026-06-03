@@ -58,7 +58,7 @@ app.post('/check-availability', async (req, res) => {
       }
     }
 
-    // Wenn kein Mitarbeiter frei → freie Zeiten zurückgeben
+    // Wenn kein Mitarbeiter frei
     if (verfuegbare_mitarbeiter.length === 0) {
       let freie_zeiten = [];
       for (const [provider, intervals] of Object.entries(tagesslots)) {
@@ -84,17 +84,16 @@ app.post('/check-availability', async (req, res) => {
     // Wenn spezifischer Mitarbeiter gewünscht
     if (provider_id) {
       const gewuenscht = verfuegbare_mitarbeiter.find(m => m.id === parseInt(provider_id));
-      
+
       if (gewuenscht) {
-        // Gewünschter Mitarbeiter ist frei
+        // Gewünschter Mitarbeiter ist frei → alle verfügbaren zurückgeben
         return res.json({
           verfuegbar: true,
-          verfuegbare_mitarbeiter: [gewuenscht],
+          verfuegbare_mitarbeiter: verfuegbare_mitarbeiter,
           freie_zeiten: []
         });
       } else {
         // Gewünschter Mitarbeiter ist NICHT frei
-        // Freie Zeiten des gewünschten Mitarbeiters berechnen
         let freie_zeiten_mitarbeiter = [];
         if (tagesslots[provider_id]) {
           const einzelne = [];
