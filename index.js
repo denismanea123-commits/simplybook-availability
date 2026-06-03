@@ -52,7 +52,7 @@ app.post('/check-availability', async (req, res) => {
     const response = await axios.post('https://user-api.simplybook.me/admin/', {
       jsonrpc: '2.0',
       method: 'getAvailableTimeIntervals',
-      params: [datum, datum, parseInt(service_id), null],
+      params: [datum, datum, parseInt(service_id), provider_id ? parseInt(provider_id) : null],
       id: 1
     }, {
       headers: {
@@ -114,10 +114,8 @@ app.post('/check-availability', async (req, res) => {
     }
 
     const pid_raw = provider_id && provider_id !== "" ? parseInt(provider_id) : 0;
-
     if (pid_raw && pid_raw !== 0) {
       const istFrei = verfuegbare_mitarbeiter.some(m => m.id === pid_raw);
-
       if (istFrei) {
         return res.json({
           verfuegbar: true,
@@ -129,7 +127,6 @@ app.post('/check-availability', async (req, res) => {
         const mitarbeiter_intervals = tagesslots[pid_raw] || tagesslots[String(pid_raw)] || [];
         const freie_zeiten_mitarbeiter = getFreieZeiten(mitarbeiter_intervals, dauer_int);
         const andere = verfuegbare_mitarbeiter.filter(m => m.id !== pid_raw);
-
         return res.json({
           verfuegbar: false,
           gewuenschter_mitarbeiter: MITARBEITER[pid_raw] || `Mitarbeiter ${pid_raw}`,
@@ -156,7 +153,7 @@ app.post('/get-available-slots', async (req, res) => {
     const response = await axios.post('https://user-api.simplybook.me/admin/', {
       jsonrpc: '2.0',
       method: 'getAvailableTimeIntervals',
-      params: [datum, datum, parseInt(service_id), null],
+      params: [datum, datum, parseInt(service_id), provider_id ? parseInt(provider_id) : null],
       id: 1
     }, {
       headers: {
