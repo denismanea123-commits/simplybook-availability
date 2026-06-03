@@ -4,7 +4,8 @@ const app = express();
 app.use(express.json());
 
 function timeToMinutes(time) {
-  const [h, m] = time.split(':').map(Number);
+  const clean = time.substring(0, 5);
+  const [h, m] = clean.split(':').map(Number);
   return h * 60 + m;
 }
 
@@ -51,7 +52,7 @@ app.post('/check-availability', async (req, res) => {
     const response = await axios.post('https://user-api.simplybook.me/admin/', {
       jsonrpc: '2.0',
       method: 'getAvailableTimeIntervals',
-      params: [datum, datum, service_id, null],
+      params: [datum, datum, parseInt(service_id), null],
       id: 1
     }, {
       headers: {
@@ -64,17 +65,20 @@ app.post('/check-availability', async (req, res) => {
     const slots = response.data.result;
     const tagesslots = slots[datum] || {};
     const uhrzeit_min = timeToMinutes(uhrzeit);
-    const end_min = uhrzeit_min + dauer;
+    const dauer_int = parseInt(dauer);
+    const end_min = uhrzeit_min + dauer_int;
 
+    // Alle Mitarbeiter die zur gewünschten Zeit frei sind
     let verfuegbare_mitarbeiter = [];
     for (const [provider, intervals] of Object.entries(tagesslots)) {
       for (const interval of intervals) {
         const from_min = timeToMinutes(interval.from);
         const to_min = timeToMinutes(interval.to);
         if (from_min <= uhrzeit_min && to_min >= end_min) {
+          const pid = parseInt(provider);
           verfuegbare_mitarbeiter.push({
-            id: parseInt(provider),
-            name: MITARBEITER[parseInt(provider)] || `Mitarbeiter ${provider}`
+            id: pid,
+            name: MITARBEITER[pid] || `Mitarbeiter ${pid}`
           });
           break;
         }
@@ -88,7 +92,7 @@ app.post('/check-availability', async (req, res) => {
           const from_min = timeToMinutes(interval.from);
           const to_min = timeToMinutes(interval.to);
           let current = from_min;
-          while (current + dauer <= to_min) {
+          while (current + dauer_int <= to_min) {
             alle_freie_zeiten.add(minutesToTime(current));
             current += 15;
           }
@@ -102,25 +106,26 @@ app.post('/check-availability', async (req, res) => {
       });
     }
 
-    if (provider_id && provider_id !== "" && parseInt(provider_id) !== 0) {
-      const pid = parseInt(provider_id);
-      const istFrei = verfuegbare_mitarbeiter.some(m => m.id === pid);
+    const pid_raw = provider_id && provider_id !== "" ? parseInt(provider_id) : 0;
+
+    if (pid_raw && pid_raw !== 0) {
+      const istFrei = verfuegbare_mitarbeiter.some(m => m.id === pid_raw);
 
       if (istFrei) {
         return res.json({
           verfuegbar: true,
           verfuegbare_mitarbeiter: verfuegbare_mitarbeiter,
           freie_zeiten: [],
-          gewaehlter_mitarbeiter: MITARBEITER[pid] || `Mitarbeiter ${pid}`
+          gewaehlter_mitarbeiter: MITARBEITER[pid_raw] || `Mitarbeiter ${pid_raw}`
         });
       } else {
-        const mitarbeiter_intervals = tagesslots[pid] || tagesslots[String(pid)] || [];
-        const freie_zeiten_mitarbeiter = getFreieZeiten(mitarbeiter_intervals, dauer);
-        const andere = verfuegbare_mitarbeiter.filter(m => m.id !== pid);
+        const mitarbeiter_intervals = tagesslots[pid_raw] || tagesslots[String(pid_raw)] || [];
+        const freie_zeiten_mitarbeiter = getFreieZeiten(mitarbeiter_intervals, dauer_int);
+        const andere = verfuegbare_mitarbeiter.filter(m => m.id !== pid_raw);
 
         return res.json({
           verfuegbar: false,
-          gewuenschter_mitarbeiter: MITARBEITER[pid] || `Mitarbeiter ${pid}`,
+          gewuenschter_mitarbeiter: MITARBEITER[pid_raw] || `Mitarbeiter ${pid_raw}`,
           freie_zeiten_mitarbeiter: freie_zeiten_mitarbeiter,
           andere_verfuegbare_mitarbeiter: andere
         });
@@ -144,7 +149,7 @@ app.post('/get-available-slots', async (req, res) => {
     const response = await axios.post('https://user-api.simplybook.me/admin/', {
       jsonrpc: '2.0',
       method: 'getAvailableTimeIntervals',
-      params: [datum, datum, service_id, null],
+      params: [datum, datum, parseInt(service_id), null],
       id: 1
     }, {
       headers: {
@@ -156,18 +161,19 @@ app.post('/get-available-slots', async (req, res) => {
 
     const slots = response.data.result;
     const tagesslots = slots[datum] || {};
+    const dauer_int = parseInt(dauer);
 
     let freie_zeiten_gewuenscht = [];
-    if (provider_id) {
+    if (provider_id && provider_id !== "") {
       const pid = parseInt(provider_id);
       const intervals = tagesslots[pid] || tagesslots[String(pid)] || [];
-      freie_zeiten_gewuenscht = getFreieZeiten(intervals, dauer);
+      freie_zeiten_gewuenscht = getFreieZeiten(intervals, dauer_int);
     }
 
     let andere_mitarbeiter = [];
     if (uhrzeit) {
       const uhrzeit_min = timeToMinutes(uhrzeit);
-      const end_min = uhrzeit_min + dauer;
+      const end_min = uhrzeit_min + dauer_int;
       for (const [prov_id, intervals] of Object.entries(tagesslots)) {
         if (parseInt(prov_id) === parseInt(provider_id)) continue;
         for (const interval of intervals) {
