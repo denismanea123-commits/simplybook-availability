@@ -21,7 +21,6 @@ const MITARBEITER = {
   5: 'Eddy'
 };
 
-// Freie Zeiten für einen Mitarbeiter berechnen
 function getFreieZeiten(intervals, dauer) {
   const einzelne = [];
   const bloecke = [];
@@ -67,7 +66,6 @@ app.post('/check-availability', async (req, res) => {
     const uhrzeit_min = timeToMinutes(uhrzeit);
     const end_min = uhrzeit_min + dauer;
 
-    // Alle Mitarbeiter die zur gewünschten Zeit frei sind
     let verfuegbare_mitarbeiter = [];
     for (const [provider, intervals] of Object.entries(tagesslots)) {
       for (const interval of intervals) {
@@ -83,9 +81,7 @@ app.post('/check-availability', async (req, res) => {
       }
     }
 
-    // Kein Mitarbeiter verfügbar zur gewünschten Zeit
     if (verfuegbare_mitarbeiter.length === 0) {
-      // Alle freien Zeiten aller Mitarbeiter sammeln
       let alle_freie_zeiten = new Set();
       for (const [provider, intervals] of Object.entries(tagesslots)) {
         for (const interval of intervals) {
@@ -106,13 +102,11 @@ app.post('/check-availability', async (req, res) => {
       });
     }
 
-    // Spezifischer Mitarbeiter gewünscht
-    if (provider_id && parseInt(provider_id) !== 0) {
+    if (provider_id && provider_id !== "" && parseInt(provider_id) !== 0) {
       const pid = parseInt(provider_id);
       const istFrei = verfuegbare_mitarbeiter.some(m => m.id === pid);
 
       if (istFrei) {
-        // Gewünschter Mitarbeiter ist frei
         return res.json({
           verfuegbar: true,
           verfuegbare_mitarbeiter: verfuegbare_mitarbeiter,
@@ -120,12 +114,8 @@ app.post('/check-availability', async (req, res) => {
           gewaehlter_mitarbeiter: MITARBEITER[pid] || `Mitarbeiter ${pid}`
         });
       } else {
-        // Gewünschter Mitarbeiter ist NICHT frei
-        // Freie Zeiten des gewünschten Mitarbeiters berechnen
         const mitarbeiter_intervals = tagesslots[pid] || tagesslots[String(pid)] || [];
         const freie_zeiten_mitarbeiter = getFreieZeiten(mitarbeiter_intervals, dauer);
-
-        // Andere verfügbare Mitarbeiter zur gewünschten Zeit
         const andere = verfuegbare_mitarbeiter.filter(m => m.id !== pid);
 
         return res.json({
@@ -137,7 +127,6 @@ app.post('/check-availability', async (req, res) => {
       }
     }
 
-    // Kein spezifischer Mitarbeiter → alle verfügbaren zurückgeben
     return res.json({
       verfuegbar: true,
       verfuegbare_mitarbeiter: verfuegbare_mitarbeiter,
