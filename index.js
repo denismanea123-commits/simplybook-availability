@@ -21,6 +21,31 @@ const MITARBEITER = {
   5: 'Eddy'
 };
 
+// Freie Zeiten für einen Mitarbeiter berechnen
+function getFreieZeiten(intervals, dauer) {
+  const einzelne = [];
+  const bloecke = [];
+  for (const interval of intervals) {
+    const from_min = timeToMinutes(interval.from);
+    const to_min = timeToMinutes(interval.to);
+    const dauer_interval = to_min - from_min;
+    if (dauer_interval < dauer) continue;
+    let anzahl = 0;
+    let current = from_min;
+    while (current + dauer <= to_min) { anzahl++; current += dauer; }
+    if (anzahl <= 4) {
+      current = from_min;
+      while (current + dauer <= to_min) {
+        einzelne.push(minutesToTime(current));
+        current += dauer;
+      }
+    } else {
+      bloecke.push(`ab ${minutesToTime(from_min)} bis ${minutesToTime(to_min)} Uhr`);
+    }
+  }
+  return [...einzelne, ...bloecke];
+}
+
 app.post('/check-availability', async (req, res) => {
   const { company, token, app_token, datum, uhrzeit, service_id, provider_id, dauer } = req.body;
   try {
@@ -42,7 +67,7 @@ app.post('/check-availability', async (req, res) => {
     const uhrzeit_min = timeToMinutes(uhrzeit);
     const end_min = uhrzeit_min + dauer;
 
-    // Alle verfügbaren Mitarbeiter zur gewünschten Zeit
+    // Alle Mitarbeiter die zur gewünschten Zeit frei sind
     let verfuegbare_mitarbeiter = [];
     for (const [provider, intervals] of Object.entries(tagesslots)) {
       for (const interval of intervals) {
@@ -58,72 +83,56 @@ app.post('/check-availability', async (req, res) => {
       }
     }
 
-    // Wenn kein Mitarbeiter frei
+    // Kein Mitarbeiter verfügbar zur gewünschten Zeit
     if (verfuegbare_mitarbeiter.length === 0) {
-      let freie_zeiten = [];
+      // Alle freien Zeiten aller Mitarbeiter sammeln
+      let alle_freie_zeiten = new Set();
       for (const [provider, intervals] of Object.entries(tagesslots)) {
         for (const interval of intervals) {
           const from_min = timeToMinutes(interval.from);
           const to_min = timeToMinutes(interval.to);
           let current = from_min;
           while (current + dauer <= to_min) {
-            const zeit = minutesToTime(current);
-            if (!freie_zeiten.includes(zeit)) freie_zeiten.push(zeit);
+            alle_freie_zeiten.add(minutesToTime(current));
             current += 15;
           }
         }
       }
-      freie_zeiten.sort();
+      const freie_zeiten = Array.from(alle_freie_zeiten).sort().slice(0, 8);
       return res.json({
         verfuegbar: false,
         verfuegbare_mitarbeiter: [],
-        freie_zeiten: freie_zeiten.slice(0, 8)
+        freie_zeiten: freie_zeiten
       });
     }
 
-    // Wenn spezifischer Mitarbeiter gewünscht
-    if (provider_id) {
-      const gewuenscht = verfuegbare_mitarbeiter.find(m => m.id === parseInt(provider_id));
+    // Spezifischer Mitarbeiter gewünscht
+    if (provider_id && parseInt(provider_id) !== 0) {
+      const pid = parseInt(provider_id);
+      const istFrei = verfuegbare_mitarbeiter.some(m => m.id === pid);
 
-      if (gewuenscht) {
-        // Gewünschter Mitarbeiter ist frei → alle verfügbaren zurückgeben
+      if (istFrei) {
+        // Gewünschter Mitarbeiter ist frei
         return res.json({
           verfuegbar: true,
           verfuegbare_mitarbeiter: verfuegbare_mitarbeiter,
-          freie_zeiten: []
+          freie_zeiten: [],
+          gewaehlter_mitarbeiter: MITARBEITER[pid] || `Mitarbeiter ${pid}`
         });
       } else {
         // Gewünschter Mitarbeiter ist NICHT frei
-        let freie_zeiten_mitarbeiter = [];
-        if (tagesslots[provider_id]) {
-          const einzelne = [];
-          const bloecke = [];
-          for (const interval of tagesslots[provider_id]) {
-            const from_min = timeToMinutes(interval.from);
-            const to_min = timeToMinutes(interval.to);
-            const dauer_interval = to_min - from_min;
-            if (dauer_interval < dauer) continue;
-            let anzahl = 0;
-            let current = from_min;
-            while (current + dauer <= to_min) { anzahl++; current += dauer; }
-            if (anzahl <= 4) {
-              current = from_min;
-              while (current + dauer <= to_min) {
-                einzelne.push(minutesToTime(current));
-                current += dauer;
-              }
-            } else {
-              bloecke.push(`ab ${minutesToTime(from_min)} bis ${minutesToTime(to_min)} Uhr`);
-            }
-          }
-          freie_zeiten_mitarbeiter = [...einzelne, ...bloecke];
-        }
+        // Freie Zeiten des gewünschten Mitarbeiters berechnen
+        const mitarbeiter_intervals = tagesslots[pid] || tagesslots[String(pid)] || [];
+        const freie_zeiten_mitarbeiter = getFreieZeiten(mitarbeiter_intervals, dauer);
+
+        // Andere verfügbare Mitarbeiter zur gewünschten Zeit
+        const andere = verfuegbare_mitarbeiter.filter(m => m.id !== pid);
 
         return res.json({
           verfuegbar: false,
-          gewuenschter_mitarbeiter: MITARBEITER[parseInt(provider_id)] || `Mitarbeiter ${provider_id}`,
+          gewuenschter_mitarbeiter: MITARBEITER[pid] || `Mitarbeiter ${pid}`,
           freie_zeiten_mitarbeiter: freie_zeiten_mitarbeiter,
-          andere_verfuegbare_mitarbeiter: verfuegbare_mitarbeiter
+          andere_verfuegbare_mitarbeiter: andere
         });
       }
     }
@@ -160,28 +169,10 @@ app.post('/get-available-slots', async (req, res) => {
     const tagesslots = slots[datum] || {};
 
     let freie_zeiten_gewuenscht = [];
-    if (provider_id && tagesslots[provider_id]) {
-      const einzelne_slots = [];
-      const bloecke = [];
-      for (const interval of tagesslots[provider_id]) {
-        const from_min = timeToMinutes(interval.from);
-        const to_min = timeToMinutes(interval.to);
-        const dauer_interval = to_min - from_min;
-        if (dauer_interval < dauer) continue;
-        let anzahl_slots = 0;
-        let current = from_min;
-        while (current + dauer <= to_min) { anzahl_slots++; current += dauer; }
-        if (anzahl_slots <= 3) {
-          current = from_min;
-          while (current + dauer <= to_min) {
-            einzelne_slots.push(minutesToTime(current));
-            current += dauer;
-          }
-        } else {
-          bloecke.push(`ab ${minutesToTime(from_min)} bis ${minutesToTime(to_min)} Uhr`);
-        }
-      }
-      freie_zeiten_gewuenscht = [...einzelne_slots, ...bloecke];
+    if (provider_id) {
+      const pid = parseInt(provider_id);
+      const intervals = tagesslots[pid] || tagesslots[String(pid)] || [];
+      freie_zeiten_gewuenscht = getFreieZeiten(intervals, dauer);
     }
 
     let andere_mitarbeiter = [];
@@ -194,7 +185,10 @@ app.post('/get-available-slots', async (req, res) => {
           const from_min = timeToMinutes(interval.from);
           const to_min = timeToMinutes(interval.to);
           if (from_min <= uhrzeit_min && to_min >= end_min) {
-            andere_mitarbeiter.push(MITARBEITER[parseInt(prov_id)] || `Mitarbeiter ${prov_id}`);
+            andere_mitarbeiter.push({
+              id: parseInt(prov_id),
+              name: MITARBEITER[parseInt(prov_id)] || `Mitarbeiter ${prov_id}`
+            });
             break;
           }
         }
