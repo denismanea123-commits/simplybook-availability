@@ -22,6 +22,55 @@ const MITARBEITER = {
   5: 'Eddy'
 };
 
+const SERVICES = {
+  2:  { name: 'Cut & Go',                    dauer: 50,  preis: 34 },
+  3:  { name: 'Waschen & Stylen',             dauer: 25,  preis: 24 },
+  4:  { name: 'Waschen, Schneiden & Stylen',  dauer: 80,  preis: 49 },
+  5:  { name: 'Wash & Cut',                   dauer: 30,  preis: 29 },
+  6:  { name: 'Maschinenschnitt',             dauer: 30,  preis: 20 },
+  7:  { name: 'Haircut',                      dauer: 30,  preis: 26 },
+  8:  { name: 'Farbe / Coloration',           dauer: 65,  preis: 40 },
+  9:  { name: 'Foliensträhnen ganzer Kopf',   dauer: 90,  preis: 90 },
+  10: { name: 'Foliensträhnen Oberkopf',      dauer: 70,  preis: 55 },
+  11: { name: 'Balayage',                     dauer: 80,  preis: 90 },
+  12: { name: 'Dauerwelle',                   dauer: 60,  preis: 40 },
+  13: { name: 'Girls Haarschnitt 0-11',       dauer: 30,  preis: 0  },
+  14: { name: 'Girls Haarschnitt 11-15',      dauer: 30,  preis: 0  },
+  15: { name: 'Boys Haarschnitt 0-11',        dauer: 30,  preis: 0  },
+  16: { name: 'Boys Haarschnitt 11-15',       dauer: 30,  preis: 0  }
+};
+
+const ADDONS = {
+  1: { name: 'Augenbrauen zupfen',              dauer: 10, preis: 12 },
+  2: { name: 'Augenbrauen färben',              dauer: 10, preis: 9  },
+  3: { name: 'Bartrasur & Pflege',              dauer: 15, preis: 15 },
+  4: { name: 'Facewaxing',                      dauer: 15, preis: 25 },
+  5: { name: 'Gesichtentharung Fadentechnik',   dauer: 15, preis: 20 },
+  6: { name: 'Wimpern färben',                  dauer: 20, preis: 15 },
+  7: { name: 'Waschen, Schneiden & Stylen',     dauer: 80, preis: 49 },
+  8: { name: 'Cut & Go',                        dauer: 50, preis: 34 },
+  9: { name: 'Waschen & Stylen',                dauer: 25, preis: 24 }
+};
+
+// Welche Add-Ons sind für welchen Service erlaubt
+const ERLAUBTE_ADDONS = {
+  2:  [1,2,3,4,5,6],
+  3:  [1,2,3,4,5,6],
+  4:  [1,2,3,4,5,6],
+  5:  [1,2,3,4,5,6],
+  6:  [1,2,3,4,5,6],
+  7:  [1,2,3,4,5,6],
+  8:  [1,2,3,4,5,6,7,8,9],
+  9:  [1,2,3,4,5,6,7,8,9],
+  10: [1,2,3,4,5,6,7,8,9],
+  11: [1,2,3,4,5,6,7,8,9],
+  12: [1,2,3,4,5,6,7,8,9],
+  13: [],
+  14: [],
+  15: [],
+  16: []
+};
+
 function getFreieZeiten(intervals, dauer) {
   const einzelne = [];
   const bloecke = [];
@@ -45,6 +94,57 @@ function getFreieZeiten(intervals, dauer) {
   }
   return [...einzelne, ...bloecke];
 }
+
+// NEUE ROUTE: Preis + Dauer + Kommentar berechnen
+app.post('/get-pricing', (req, res) => {
+  const { service_id, addon_ids } = req.body;
+  const sid = parseInt(service_id);
+  const service = SERVICES[sid];
+
+  if (!service) {
+    return res.status(400).json({ error: `Unbekannter Service: ${service_id}` });
+  }
+
+  const erlaubt = ERLAUBTE_ADDONS[sid] || [];
+  let gesamt_dauer = service.dauer;
+  let gesamt_preis = service.preis;
+  let zeilen = [];
+
+  // Hauptservice Zeile
+  if (service.preis > 0) {
+    zeilen.push(`${service.name} (${service.dauer} Min) - ${service.preis} €`);
+  } else {
+    zeilen.push(`${service.name} (${service.dauer} Min)`);
+  }
+
+  // Add-Ons verarbeiten
+  const ids = Array.isArray(addon_ids) ? addon_ids : [];
+  for (const aid of ids) {
+    const aid_int = parseInt(aid);
+    if (!erlaubt.includes(aid_int)) continue; // nicht erlaubt für diesen Service → überspringen
+    const addon = ADDONS[aid_int];
+    if (!addon) continue;
+    gesamt_dauer += addon.dauer;
+    gesamt_preis += addon.preis;
+    zeilen.push(`+ ${addon.name} (${addon.dauer} Min) - ${addon.preis} €`);
+  }
+
+  // Trennlinie + Summe
+  zeilen.push(`─────────────────`);
+  if (gesamt_preis > 0) {
+    zeilen.push(`Gesamt: ${gesamt_dauer} Min | ${gesamt_preis} €`);
+  } else {
+    zeilen.push(`Gesamt: ${gesamt_dauer} Min`);
+  }
+
+  const kommentar_text = zeilen.join('\n');
+
+  return res.json({
+    gesamt_dauer,
+    gesamt_preis,
+    kommentar_text
+  });
+});
 
 app.post('/check-availability', async (req, res) => {
   const { company, token, app_token, datum, uhrzeit, service_id, provider_id, dauer } = req.body;
