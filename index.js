@@ -118,7 +118,7 @@ app.post('/get-pricing', (req, res) => {
   }
 
   // Add-Ons verarbeiten
-  const ids = Array.isArray(addon_ids) ? addon_ids : [];
+  const ids = Array.isArray(addon_ids) ? addon_ids : (addon_ids !== undefined && addon_ids !== null ? [addon_ids] : []);
   for (const aid of ids) {
     const aid_int = parseInt(aid);
     if (!erlaubt.includes(aid_int)) continue; // nicht erlaubt für diesen Service → überspringen
