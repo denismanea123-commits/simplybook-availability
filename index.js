@@ -193,6 +193,48 @@ app.post('/check-availability', async (req, res) => {
     }
 
     if (verfuegbare_mitarbeiter.length === 0) {
+      const pid_check = provider_id && provider_id !== "" ? parseInt(provider_id) : 0;
+      if (pid_check && pid_check !== 0) {
+        // Bestimmter Mitarbeiter gewünscht aber nicht frei → seine freien Zeiten berechnen
+        const mitarbeiter_intervals = tagesslots[pid_check] || tagesslots[String(pid_check)] || [];
+        const freie_zeiten_mitarbeiter = getFreieZeiten(mitarbeiter_intervals, dauer_int);
+        let alle_freie_zeiten = new Set();
+        for (const [provider, intervals] of Object.entries(tagesslots)) {
+          if (parseInt(provider) === pid_check) continue;
+          for (const interval of intervals) {
+            const from_min = timeToMinutes(interval.from);
+            const to_min = timeToMinutes(interval.to);
+            let current = from_min;
+            while (current + dauer_int <= to_min) {
+              alle_freie_zeiten.add(minutesToTime(current));
+              current += 15;
+            }
+          }
+        }
+        const andere_verfuegbare_mitarbeiter = [];
+        for (const [provider, intervals] of Object.entries(tagesslots)) {
+          if (parseInt(provider) === pid_check) continue;
+          for (const interval of intervals) {
+            const from_min = timeToMinutes(interval.from);
+            const to_min = timeToMinutes(interval.to);
+            if (from_min <= uhrzeit_min && to_min >= end_min) {
+              const pid = parseInt(provider);
+              andere_verfuegbare_mitarbeiter.push({
+                id: pid,
+                name: MITARBEITER[pid] || `Mitarbeiter ${pid}`
+              });
+              break;
+            }
+          }
+        }
+        return res.json({
+          verfuegbar: false,
+          gewuenschter_mitarbeiter: MITARBEITER[pid_check] || `Mitarbeiter ${pid_check}`,
+          freie_zeiten_mitarbeiter: freie_zeiten_mitarbeiter,
+          andere_verfuegbare_mitarbeiter: andere_verfuegbare_mitarbeiter
+        });
+      }
+      // Kein bestimmter Mitarbeiter → allgemeine freie Zeiten
       let alle_freie_zeiten = new Set();
       for (const [provider, intervals] of Object.entries(tagesslots)) {
         for (const interval of intervals) {
