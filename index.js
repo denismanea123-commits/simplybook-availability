@@ -102,7 +102,7 @@ app.get('/get-field-hash', async (req, res) => {
     const loginResp = await axios.post('https://user-api.simplybook.me/login', {
       jsonrpc: '2.0',
       method: 'getUserToken',
-      params: ['dein', 'denismanea123@gmail.com', 'api_user_key_V6FI_amUWGrTIlaQtREmYZ8ftMTOPSI8Sftxc0Dlg2Q'],
+      params: ['dein', 'denismanea123@gmail.com', 'api_user_key_lPhbNTR8NMW31apDxxvPtls3WP7CeSI6GgkIl1uwl3c'],
       id: 1
     });
 
