@@ -95,20 +95,28 @@ function getFreieZeiten(intervals, dauer) {
 }
 
 
-// Route to get additional field hash
-app.post('/get-field-hash', async (req, res) => {
-  const { company, token, app_token, event_id } = req.body;
+// Route to get additional field hash - auto login
+app.get('/get-field-hash', async (req, res) => {
   try {
+    // Step 1: Login
+    const loginResp = await axios.post('https://user-api.simplybook.me/login', {
+      jsonrpc: '2.0',
+      method: 'getToken',
+      params: ['dein', 'eb308f30b177027286a6019b55464eaa180f0f64f5c466ba729183a48cc15019'],
+      id: 1
+    });
+    const token = loginResp.data.result;
+    // Step 2: Get fields
     const response = await axios.post('https://user-api.simplybook.me/admin/', {
       jsonrpc: '2.0',
       method: 'getAdditionalFields',
-      params: [parseInt(event_id)],
+      params: [7],
       id: 1
     }, {
       headers: {
-        'X-Company-Login': company,
+        'X-Company-Login': 'dein',
         'X-User-Token': token,
-        'X-Application-Token': app_token
+        'X-Application-Token': 'eb308f30b177027286a6019b55464eaa180f0f64f5c466ba729183a48cc15019'
       }
     });
     return res.json(response.data);
