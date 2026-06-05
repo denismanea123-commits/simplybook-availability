@@ -98,15 +98,20 @@ function getFreieZeiten(intervals, dauer) {
 // Route to get additional field hash - auto login
 app.get('/get-field-hash', async (req, res) => {
   try {
-    // Step 1: Login
+    // Schritt 1: Login mit User-API-Key (3. Parameter = der echte Key)
     const loginResp = await axios.post('https://user-api.simplybook.me/login', {
       jsonrpc: '2.0',
       method: 'getUserToken',
-      params: ['dein', 'denismanea123@gmail.com', 'api_user_key_placeholder'],
+      params: ['dein', 'denismanea123@gmail.com', 'api_user_key_V6FI_amUWGrTIlaQtREmYZ8ftMTOPSI8Sftxc0Dlg2Q'],
       id: 1
     });
+
     const token = loginResp.data.result;
-    // Step 2: Get fields
+    if (!token) {
+      return res.status(400).json({ step: 'login', error: loginResp.data.error || 'Kein Token erhalten' });
+    }
+
+    // Schritt 2: Zusatzfelder für Service 7 abrufen
     const response = await axios.post('https://user-api.simplybook.me/admin/', {
       jsonrpc: '2.0',
       method: 'getAdditionalFields',
@@ -116,13 +121,16 @@ app.get('/get-field-hash', async (req, res) => {
       headers: {
         'X-Company-Login': 'dein',
         'X-User-Token': token,
-        'X-Token': token,
         'X-Application-Token': 'eb308f30b177027286a6019b55464eaa180f0f64f5c466ba729183a48cc15019'
       }
     });
+
     return res.json(response.data);
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    return res.status(500).json({
+      error: error.message,
+      detail: error.response ? error.response.data : null
+    });
   }
 });
 
