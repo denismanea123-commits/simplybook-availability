@@ -116,6 +116,7 @@ app.get('/get-field-hash', async (req, res) => {
       headers: {
         'X-Company-Login': 'dein',
         'X-User-Token': token,
+        'X-Token': token,
         'X-Application-Token': 'eb308f30b177027286a6019b55464eaa180f0f64f5c466ba729183a48cc15019'
       }
     });
