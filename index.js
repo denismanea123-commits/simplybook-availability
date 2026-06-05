@@ -52,7 +52,6 @@ const ADDONS = {
   9: { name: 'Waschen & Stylen',                dauer: 25, preis: 24 }
 };
 
-// Welche Add-Ons sind für welchen Service erlaubt
 const ERLAUBTE_ADDONS = {
   2:  [1,2,3,4,5,6],
   3:  [1,2,3,4,5,6],
@@ -95,7 +94,6 @@ function getFreieZeiten(intervals, dauer) {
   return [...einzelne, ...bloecke];
 }
 
-// NEUE ROUTE: Preis + Dauer + Kommentar berechnen
 app.post('/get-pricing', (req, res) => {
   const { service_id, addon_ids } = req.body;
   const sid = parseInt(service_id);
@@ -110,18 +108,16 @@ app.post('/get-pricing', (req, res) => {
   let gesamt_preis = service.preis;
   let zeilen = [];
 
-  // Hauptservice Zeile
   if (service.preis > 0) {
     zeilen.push(`${service.name} (${service.dauer} Min) - ${service.preis} €`);
   } else {
     zeilen.push(`${service.name} (${service.dauer} Min)`);
   }
 
-  // Add-Ons verarbeiten
   const ids = Array.isArray(addon_ids) ? addon_ids : (addon_ids !== undefined && addon_ids !== null ? [addon_ids] : []);
   for (const aid of ids) {
     const aid_int = parseInt(aid);
-    if (!erlaubt.includes(aid_int)) continue; // nicht erlaubt für diesen Service → überspringen
+    if (!erlaubt.includes(aid_int)) continue;
     const addon = ADDONS[aid_int];
     if (!addon) continue;
     gesamt_dauer += addon.dauer;
@@ -129,15 +125,13 @@ app.post('/get-pricing', (req, res) => {
     zeilen.push(`+ ${addon.name} (${addon.dauer} Min) - ${addon.preis} €`);
   }
 
-  // Trennlinie + Summe
-  zeilen.push(`─────────────────`);
   if (gesamt_preis > 0) {
     zeilen.push(`Gesamt: ${gesamt_dauer} Min | ${gesamt_preis} €`);
   } else {
     zeilen.push(`Gesamt: ${gesamt_dauer} Min`);
   }
 
-  const kommentar_text = zeilen.join('\n');
+  const kommentar_text = zeilen.join(' | ');
 
   return res.json({
     gesamt_dauer,
@@ -195,7 +189,6 @@ app.post('/check-availability', async (req, res) => {
     if (verfuegbare_mitarbeiter.length === 0) {
       const pid_check = provider_id && provider_id !== "" ? parseInt(provider_id) : 0;
       if (pid_check && pid_check !== 0) {
-        // Bestimmter Mitarbeiter gewünscht aber nicht frei → seine freien Zeiten berechnen
         const mitarbeiter_intervals = tagesslots[pid_check] || tagesslots[String(pid_check)] || [];
         const freie_zeiten_mitarbeiter = getFreieZeiten(mitarbeiter_intervals, dauer_int);
         let alle_freie_zeiten = new Set();
@@ -234,7 +227,6 @@ app.post('/check-availability', async (req, res) => {
           andere_verfuegbare_mitarbeiter: andere_verfuegbare_mitarbeiter
         });
       }
-      // Kein bestimmter Mitarbeiter → allgemeine freie Zeiten
       let alle_freie_zeiten = new Set();
       for (const [provider, intervals] of Object.entries(tagesslots)) {
         for (const interval of intervals) {
