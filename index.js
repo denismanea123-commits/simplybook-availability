@@ -186,7 +186,7 @@ app.post('/check-availability', async (req, res) => {
     const response = await axios.post('https://user-api.simplybook.me/admin/', {
       jsonrpc: '2.0',
       method: 'getAvailableTimeIntervals',
-      params: [datum, datum, parseInt(service_id), provider_id ? parseInt(provider_id) : null],
+      params: [datum, datum, parseInt(service_id), null],
       id: 1
     }, {
       headers: {
@@ -327,7 +327,7 @@ app.post('/get-available-slots', async (req, res) => {
     const response = await axios.post('https://user-api.simplybook.me/admin/', {
       jsonrpc: '2.0',
       method: 'getAvailableTimeIntervals',
-      params: [datum, datum, parseInt(service_id), provider_id ? parseInt(provider_id) : null],
+      params: [datum, datum, parseInt(service_id), null],
       id: 1
     }, {
       headers: {
