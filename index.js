@@ -405,6 +405,32 @@ app.post('/get-available-slots', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// DEBUG: Roher SimplyBook Output für find-booking
+// ─────────────────────────────────────────────
+app.post('/debug-booking', async (req, res) => {
+  const { company, token, app_token, datum } = req.body;
+  try {
+    const response = await axios.post('https://user-api.simplybook.me/admin/', {
+      jsonrpc: '2.0',
+      method: 'getBookings',
+      params: [{ date_from: datum, date_to: datum }],
+      id: 1
+    }, {
+      headers: {
+        'X-Company-Login': company,
+        'X-User-Token': token,
+        'X-Application-Token': app_token
+      }
+    });
+    // Ersten Eintrag roh zurückgeben
+    const bookings = response.data.result;
+    return res.json({ erster_eintrag: bookings && bookings.length > 0 ? bookings[0] : null, anzahl: bookings ? bookings.length : 0 });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// ─────────────────────────────────────────────
 // NEU: Termin suchen anhand Name + Datum
 // ─────────────────────────────────────────────
 app.post('/find-booking', async (req, res) => {
@@ -454,14 +480,34 @@ app.post('/find-booking', async (req, res) => {
       return res.json({ gefunden: false, buchungen: [] });
     }
 
-    // Relevante Felder zurückgeben
-    const result = treffer.map(b => ({
-      booking_id: b.id,
-      name: b.client_name || b.client || '',
-      datum: b.start_date_time ? b.start_date_time.substring(0, 10) : datum,
-      uhrzeit: b.start_date_time ? b.start_date_time.substring(11, 16) : '',
-      service: b.service_name || '',
-      mitarbeiter: b.provider_name || ''
+    // Für jeden Treffer Details abrufen
+    const result = await Promise.all(treffer.map(async (b) => {
+      try {
+        const detailResp = await axios.post('https://user-api.simplybook.me/admin/', {
+          jsonrpc: '2.0',
+          method: 'getBookingDetails',
+          params: [parseInt(b.id)],
+          id: 1
+        }, {
+          headers: {
+            'X-Company-Login': company,
+            'X-User-Token': token,
+            'X-Application-Token': app_token
+          }
+        });
+        const d = detailResp.data.result || {};
+        const startDT = d.start_date_time || d.start_datetime || '';
+        return {
+          booking_id: b.id,
+          name: d.client_name || d.clientName || b.client_name || '',
+          datum: startDT ? startDT.substring(0, 10) : datum,
+          uhrzeit: startDT ? startDT.substring(11, 16) : '',
+          service: d.event_name || d.service_name || d.eventName || '',
+          mitarbeiter: d.unit_name || d.provider_name || d.unitName || ''
+        };
+      } catch (e) {
+        return { booking_id: b.id, name: b.client_name || '', datum, uhrzeit: '', service: '', mitarbeiter: '' };
+      }
     }));
 
     return res.json({ gefunden: true, buchungen: result });
