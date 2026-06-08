@@ -530,16 +530,7 @@ app.post('/find-booking', async (req, res) => {
       }
     }));
 
-    // Optional nach Uhrzeit filtern
-    const gefiltert = uhrzeit?.trim()
-      ? result.filter(b => b.uhrzeit === uhrzeit.trim().substring(0, 5))
-      : result;
-
-    if (gefiltert.length === 0) {
-      return res.json({ gefunden: false, buchungen: [] });
-    }
-
-    return res.json({ gefunden: true, buchungen: gefiltert });
+    return res.json({ gefunden: true, buchungen: result });
 
   } catch (error) {
     return res.status(500).json({ error: error.message });
