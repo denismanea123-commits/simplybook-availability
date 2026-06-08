@@ -453,22 +453,28 @@ app.post('/debug-booking', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// ROUTE: Termin suchen (Name + Datum + optional Uhrzeit)
+// ROUTE: Termin suchen (nur Name, alle zukünftigen Termine)
 // ─────────────────────────────────────────────
 app.post('/find-booking', async (req, res) => {
-  const { company, token, app_token, name, datum, uhrzeit } = req.body;
+  const { company, token, app_token, name } = req.body;
 
-  if (!company || !token || !app_token || !name || !datum) {
+  if (!company || !token || !app_token || !name) {
     return res.status(400).json({
-      error: 'Fehlende Parameter: company, token, app_token, name, datum erforderlich',
+      error: 'Fehlende Parameter: company, token, app_token, name erforderlich',
     });
   }
+
+  // Heute bis 6 Monate in die Zukunft suchen
+  const heute = new Date().toISOString().substring(0, 10);
+  const bisDate = new Date();
+  bisDate.setMonth(bisDate.getMonth() + 6);
+  const bis = bisDate.toISOString().substring(0, 10);
 
   try {
     const response = await axios.post(SIMPLYBOOK_ADMIN, {
       jsonrpc: '2.0',
       method:  'getBookings',
-      params:  [{ date_from: datum, date_to: datum }],
+      params:  [{ date_from: heute, date_to: bis }],
       id:      1,
     }, {
       headers: {
@@ -487,7 +493,7 @@ app.post('/find-booking', async (req, res) => {
       return res.json({ gefunden: false, buchungen: [] });
     }
 
-    // Nach Name filtern (Vorname, Nachname oder Vollname)
+    // Nach Name filtern (Groß/Kleinschreibung egal)
     const nameLower = name.toLowerCase().trim();
     const treffer   = bookings.filter(b => {
       const fname    = (b.client_name || '').toLowerCase();
@@ -517,28 +523,38 @@ app.post('/find-booking', async (req, res) => {
 
         const d       = detailResp.data.result || {};
         const startDT = d.start_date_time || d.start_datetime || '';
+        const datumStr = startDT ? startDT.substring(0, 10) : '';
+        const uhrzeitStr = startDT ? startDT.substring(11, 16) : '';
         return {
           booking_id:  b.id,
           name:        d.client_name  || d.clientName  || b.client_name || '',
-          datum:       startDT ? startDT.substring(0, 10) : datum,
-          uhrzeit:     startDT ? startDT.substring(11, 16) : '',
+          datum:       datumStr,
+          uhrzeit:     uhrzeitStr,
           service:     d.event_name   || d.service_name || d.eventName  || '',
           mitarbeiter: d.unit_name    || d.provider_name || d.unitName  || '',
         };
       } catch {
-        return { booking_id: b.id, name: b.client_name || '', datum, uhrzeit: '', service: '', mitarbeiter: '' };
+        return { booking_id: b.id, name: b.client_name || '', datum: '', uhrzeit: '', service: '', mitarbeiter: '' };
       }
     }));
 
-    // Fertige Liste für WhatsApp zusammenbauen
-    const datumFormatiert = new Date(datum + 'T12:00:00').toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    // Fertige Liste für WhatsApp — mit Datum + Uhrzeit + Service
+    const zeilen = result.map((t, i) => {
+      const datumFormatiert = t.datum
+        ? new Date(t.datum + 'T12:00:00').toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+        : '';
+      return `${i + 1}. ${datumFormatiert} – ${t.uhrzeit} Uhr – ${t.service}`;
+    }).join('\n');
+
     let liste_text = '';
     if (result.length === 1) {
       const t = result[0];
-      liste_text = `Ich habe folgenden Termin gefunden für ${t.name} am ${datumFormatiert}:\n\n• ${t.uhrzeit} Uhr – ${t.service}\n\nMöchten Sie diesen Termin stornieren? (Ja / Nein)`;
+      const datumFormatiert = t.datum
+        ? new Date(t.datum + 'T12:00:00').toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+        : '';
+      liste_text = `Ich habe folgenden Termin gefunden für ${t.name}:\n\n• ${datumFormatiert} – ${t.uhrzeit} Uhr – ${t.service}\n\nMöchten Sie diesen Termin stornieren? (Ja / Nein)`;
     } else {
-      const zeilen = result.map((t, i) => `${i + 1}. ${t.uhrzeit} Uhr – ${t.service}`).join('\n');
-      liste_text = `Ich habe folgende Termine gefunden für ${result[0].name} am ${datumFormatiert}:\n\n${zeilen}\n\nWelchen Termin möchten Sie stornieren? Bitte Nummer oder Uhrzeit angeben.`;
+      liste_text = `Ich habe folgende Termine gefunden für ${result[0].name}:\n\n${zeilen}\n\nWelchen Termin möchten Sie stornieren? Bitte Nummer eingeben.`;
     }
 
     return res.json({ gefunden: true, buchungen: result, liste_text });
