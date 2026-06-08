@@ -434,21 +434,17 @@ app.post('/debug-booking', async (req, res) => {
 // NEU: Termin suchen anhand Name + Datum
 // ─────────────────────────────────────────────
 app.post('/find-booking', async (req, res) => {
-  const { company, token, app_token, name, datum } = req.body;
+  const { company, token, app_token, name, datum, uhrzeit } = req.body;
 
   if (!company || !token || !app_token || !name || !datum) {
     return res.status(400).json({ error: 'Fehlende Parameter: company, token, app_token, name, datum erforderlich' });
   }
 
   try {
-    // Buchungen für das Datum abrufen
     const response = await axios.post('https://user-api.simplybook.me/admin/', {
       jsonrpc: '2.0',
       method: 'getBookings',
-      params: [{
-        date_from: datum,
-        date_to: datum
-      }],
+      params: [{ date_from: datum, date_to: datum }],
       id: 1
     }, {
       headers: {
@@ -467,12 +463,11 @@ app.post('/find-booking', async (req, res) => {
       return res.json({ gefunden: false, buchungen: [] });
     }
 
-    // Nach Name filtern (case-insensitiv, Teilübereinstimmung)
+    // Nach Name filtern
     const nameLower = name.toLowerCase().trim();
     const treffer = bookings.filter(b => {
-      const clientName = ((b.client_name || '') + ' ' + (b.client_name || '')).toLowerCase();
-      const fullName = (b.client || '').toLowerCase();
       const fname = (b.client_name || '').toLowerCase();
+      const fullName = (b.client || '').toLowerCase();
       return fname.includes(nameLower) || fullName.includes(nameLower);
     });
 
@@ -480,7 +475,7 @@ app.post('/find-booking', async (req, res) => {
       return res.json({ gefunden: false, buchungen: [] });
     }
 
-    // Für jeden Treffer Details abrufen
+    // Details abrufen
     const result = await Promise.all(treffer.map(async (b) => {
       try {
         const detailResp = await axios.post('https://user-api.simplybook.me/admin/', {
@@ -510,7 +505,18 @@ app.post('/find-booking', async (req, res) => {
       }
     }));
 
-    return res.json({ gefunden: true, buchungen: result });
+    // Nach Uhrzeit filtern wenn angegeben (Format HH:MM)
+    let gefiltert = result;
+    if (uhrzeit && uhrzeit.trim() !== '') {
+      const uhrzeitClean = uhrzeit.trim().substring(0, 5);
+      gefiltert = result.filter(b => b.uhrzeit === uhrzeitClean);
+    }
+
+    if (gefiltert.length === 0) {
+      return res.json({ gefunden: false, buchungen: [] });
+    }
+
+    return res.json({ gefunden: true, buchungen: gefiltert });
 
   } catch (error) {
     return res.status(500).json({ error: error.message });
