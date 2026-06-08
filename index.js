@@ -209,8 +209,7 @@ app.post('/check-availability', async (req, res) => {
 
     // GESCHLOSSEN-ERKENNUNG: Sonntag oder gar keine Slots am ganzen Tag = Salon zu
     const wochentag = new Date(datum + 'T12:00:00').getDay(); // 0 = Sonntag
-    const keine_slots_am_tag = Object.keys(tagesslots).length === 0;
-    if (wochentag === 0 || keine_slots_am_tag) {
+    if (wochentag === 0) {
       return res.json({
         verfuegbar: false,
         geschlossen: true,
@@ -362,7 +361,7 @@ app.post('/get-available-slots', async (req, res) => {
 
     // GESCHLOSSEN-ERKENNUNG: Sonntag oder gar keine Slots am ganzen Tag = Salon zu
     const wochentag = new Date(datum + 'T12:00:00').getDay(); // 0 = Sonntag
-    if (wochentag === 0 || Object.keys(tagesslots).length === 0) {
+    if (wochentag === 0) {
       return res.json({
         geschlossen: true,
         datum: datum
