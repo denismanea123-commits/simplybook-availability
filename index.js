@@ -98,7 +98,6 @@ function getFreieZeiten(intervals, dauer) {
 // Route to get additional field hash - auto login
 app.get('/get-field-hash', async (req, res) => {
   try {
-    // Schritt 1: Login mit User-API-Key (3. Parameter = der echte Key)
     const loginResp = await axios.post('https://user-api.simplybook.me/login', {
       jsonrpc: '2.0',
       method: 'getUserToken',
@@ -111,7 +110,6 @@ app.get('/get-field-hash', async (req, res) => {
       return res.status(400).json({ step: 'login', error: loginResp.data.error || 'Kein Token erhalten' });
     }
 
-    // Schritt 2: Zusatzfelder für Service 7 abrufen
     const response = await axios.post('https://user-api.simplybook.me/admin/', {
       jsonrpc: '2.0',
       method: 'getAdditionalFields',
@@ -207,8 +205,7 @@ app.post('/check-availability', async (req, res) => {
 
     const tagesslots = slots[datum] || {};
 
-    // GESCHLOSSEN-ERKENNUNG: Sonntag oder gar keine Slots am ganzen Tag = Salon zu
-    const wochentag = new Date(datum + 'T12:00:00').getDay(); // 0 = Sonntag
+    const wochentag = new Date(datum + 'T12:00:00').getDay();
     if (wochentag === 0) {
       return res.json({
         verfuegbar: false,
@@ -359,8 +356,7 @@ app.post('/get-available-slots', async (req, res) => {
 
     const tagesslots = slots[datum] || {};
 
-    // GESCHLOSSEN-ERKENNUNG: Sonntag oder gar keine Slots am ganzen Tag = Salon zu
-    const wochentag = new Date(datum + 'T12:00:00').getDay(); // 0 = Sonntag
+    const wochentag = new Date(datum + 'T12:00:00').getDay();
     if (wochentag === 0) {
       return res.json({
         geschlossen: true,
@@ -401,6 +397,114 @@ app.post('/get-available-slots', async (req, res) => {
       verfuegbar: freie_zeiten_gewuenscht.length > 0,
       freie_zeiten: freie_zeiten_gewuenscht,
       andere_mitarbeiter: andere_mitarbeiter
+    });
+
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// NEU: Termin suchen anhand Name + Datum
+// ─────────────────────────────────────────────
+app.post('/find-booking', async (req, res) => {
+  const { company, token, app_token, name, datum } = req.body;
+
+  if (!company || !token || !app_token || !name || !datum) {
+    return res.status(400).json({ error: 'Fehlende Parameter: company, token, app_token, name, datum erforderlich' });
+  }
+
+  try {
+    // Buchungen für das Datum abrufen
+    const response = await axios.post('https://user-api.simplybook.me/admin/', {
+      jsonrpc: '2.0',
+      method: 'getBookings',
+      params: [{
+        date_from: datum,
+        date_to: datum
+      }],
+      id: 1
+    }, {
+      headers: {
+        'X-Company-Login': company,
+        'X-User-Token': token,
+        'X-Application-Token': app_token
+      }
+    });
+
+    if (response.data.error) {
+      return res.status(500).json({ error: 'SimplyBook Fehler', detail: response.data.error });
+    }
+
+    const bookings = response.data.result;
+    if (!bookings || !Array.isArray(bookings)) {
+      return res.json({ gefunden: false, buchungen: [] });
+    }
+
+    // Nach Name filtern (case-insensitiv, Teilübereinstimmung)
+    const nameLower = name.toLowerCase().trim();
+    const treffer = bookings.filter(b => {
+      const clientName = ((b.client_name || '') + ' ' + (b.client_name || '')).toLowerCase();
+      const fullName = (b.client || '').toLowerCase();
+      const fname = (b.client_name || '').toLowerCase();
+      return fname.includes(nameLower) || fullName.includes(nameLower);
+    });
+
+    if (treffer.length === 0) {
+      return res.json({ gefunden: false, buchungen: [] });
+    }
+
+    // Relevante Felder zurückgeben
+    const result = treffer.map(b => ({
+      booking_id: b.id,
+      name: b.client_name || b.client || '',
+      datum: b.start_date_time ? b.start_date_time.substring(0, 10) : datum,
+      uhrzeit: b.start_date_time ? b.start_date_time.substring(11, 16) : '',
+      service: b.service_name || '',
+      mitarbeiter: b.provider_name || ''
+    }));
+
+    return res.json({ gefunden: true, buchungen: result });
+
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// NEU: Termin stornieren anhand Booking-ID
+// ─────────────────────────────────────────────
+app.post('/cancel-booking', async (req, res) => {
+  const { company, token, app_token, booking_id } = req.body;
+
+  if (!company || !token || !app_token || !booking_id) {
+    return res.status(400).json({ error: 'Fehlende Parameter: company, token, app_token, booking_id erforderlich' });
+  }
+
+  try {
+    const response = await axios.post('https://user-api.simplybook.me/admin/', {
+      jsonrpc: '2.0',
+      method: 'cancelBooking',
+      params: [parseInt(booking_id)],
+      id: 1
+    }, {
+      headers: {
+        'X-Company-Login': company,
+        'X-User-Token': token,
+        'X-Application-Token': app_token
+      }
+    });
+
+    if (response.data.error) {
+      return res.status(500).json({ error: 'SimplyBook Fehler', detail: response.data.error });
+    }
+
+    const success = response.data.result === true || response.data.result === 1;
+
+    return res.json({
+      erfolg: success,
+      booking_id: parseInt(booking_id),
+      raw: response.data.result
     });
 
   } catch (error) {
