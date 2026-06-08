@@ -206,6 +206,18 @@ app.post('/check-availability', async (req, res) => {
     }
 
     const tagesslots = slots[datum] || {};
+
+    // GESCHLOSSEN-ERKENNUNG: Sonntag oder gar keine Slots am ganzen Tag = Salon zu
+    const wochentag = new Date(datum + 'T12:00:00').getDay(); // 0 = Sonntag
+    const keine_slots_am_tag = Object.keys(tagesslots).length === 0;
+    if (wochentag === 0 || keine_slots_am_tag) {
+      return res.json({
+        verfuegbar: false,
+        geschlossen: true,
+        datum: datum
+      });
+    }
+
     const uhrzeit_min = timeToMinutes(uhrzeit);
     const dauer_int = parseInt(dauer);
     const end_min = uhrzeit_min + dauer_int;
@@ -347,6 +359,16 @@ app.post('/get-available-slots', async (req, res) => {
     }
 
     const tagesslots = slots[datum] || {};
+
+    // GESCHLOSSEN-ERKENNUNG: Sonntag oder gar keine Slots am ganzen Tag = Salon zu
+    const wochentag = new Date(datum + 'T12:00:00').getDay(); // 0 = Sonntag
+    if (wochentag === 0 || Object.keys(tagesslots).length === 0) {
+      return res.json({
+        geschlossen: true,
+        datum: datum
+      });
+    }
+
     const dauer_int = parseInt(dauer);
 
     let freie_zeiten_gewuenscht = [];
