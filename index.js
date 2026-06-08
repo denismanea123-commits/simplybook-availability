@@ -569,28 +569,65 @@ app.post('/find-booking', async (req, res) => {
 
 // ─────────────────────────────────────────────
 // ROUTE: Termin per Wahl-Nummer stornieren
+// name + wahl → sucht Termine, wählt den richtigen, storniert
 // ─────────────────────────────────────────────
 app.post('/select-and-cancel', async (req, res) => {
-  const { company, token, app_token, wahl, buchungen } = req.body;
+  const { company, token, app_token, name, wahl } = req.body;
 
-  if (!company || !token || !app_token || !wahl || !buchungen) {
+  if (!company || !token || !app_token || !name || !wahl) {
     return res.status(400).json({
-      error: 'Fehlende Parameter: company, token, app_token, wahl, buchungen erforderlich',
+      error: 'Fehlende Parameter: company, token, app_token, name, wahl erforderlich',
     });
   }
 
   const wahlInt = parseInt(wahl);
-  const liste = Array.isArray(buchungen) ? buchungen : JSON.parse(buchungen);
-
-  if (wahlInt < 1 || wahlInt > liste.length) {
-    return res.status(400).json({ error: `Ungültige Wahl: ${wahl}. Bitte Nummer zwischen 1 und ${liste.length} wählen.` });
-  }
-
-  const termin = liste[wahlInt - 1];
-  const booking_id = parseInt(termin.booking_id);
 
   try {
-    const response = await axios.post(SIMPLYBOOK_ADMIN, {
+    // 1. Termine suchen
+    const nowDE = new Date(new Date().getTime() + 2 * 60 * 60 * 1000);
+    const heute = nowDE.toISOString().substring(0, 10);
+    const bisDate = new Date(new Date().getTime() + 2 * 60 * 60 * 1000);
+    bisDate.setMonth(bisDate.getMonth() + 6);
+    const bis = bisDate.toISOString().substring(0, 10);
+
+    const bookingsResp = await axios.post(SIMPLYBOOK_ADMIN, {
+      jsonrpc: '2.0',
+      method:  'getBookings',
+      params:  [{ date_from: heute, date_to: bis }],
+      id:      1,
+    }, {
+      headers: {
+        'X-Company-Login':     company,
+        'X-User-Token':        token,
+        'X-Application-Token': app_token,
+      },
+    });
+
+    const bookings = bookingsResp.data.result;
+    if (!Array.isArray(bookings)) {
+      return res.status(500).json({ error: 'Keine Termine gefunden' });
+    }
+
+    // 2. Nach Name filtern
+    const nameLower = name.toLowerCase().trim();
+    const treffer = bookings.filter(b => {
+      const fname    = (b.client_name || '').toLowerCase();
+      const fullName = (b.client      || '').toLowerCase();
+      return fname.includes(nameLower) || fullName.includes(nameLower);
+    });
+
+    if (treffer.length === 0) {
+      return res.json({ erfolg: false, fehler: 'Kein Termin gefunden' });
+    }
+
+    if (wahlInt < 1 || wahlInt > treffer.length) {
+      return res.status(400).json({ error: `Ungültige Wahl: ${wahl}` });
+    }
+
+    // 3. Gewählten Termin stornieren
+    const booking_id = parseInt(treffer[wahlInt - 1].id);
+
+    const cancelResp = await axios.post(SIMPLYBOOK_ADMIN, {
       jsonrpc: '2.0',
       method:  'cancelBooking',
       params:  [booking_id],
@@ -603,16 +640,12 @@ app.post('/select-and-cancel', async (req, res) => {
       },
     });
 
-    if (response.data.error) {
-      return res.status(500).json({ error: 'SimplyBook Fehler', detail: response.data.error });
+    if (cancelResp.data.error) {
+      return res.status(500).json({ error: 'SimplyBook Fehler', detail: cancelResp.data.error });
     }
 
-    const success = response.data.result === true || response.data.result === 1;
-    return res.json({
-      erfolg:     success,
-      booking_id: booking_id,
-      termin:     termin,
-    });
+    const success = cancelResp.data.result === true || cancelResp.data.result === 1;
+    return res.json({ erfolg: success, booking_id });
 
   } catch (error) {
     return res.status(500).json({ error: error.message });
