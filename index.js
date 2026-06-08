@@ -3,6 +3,23 @@ const axios = require('axios');
 const app = express();
 app.use(express.json());
 
+// ─────────────────────────────────────────────
+// KONFIGURATION – pro Kunde anpassen
+// In Render.com: Environment Variables setzen
+// ─────────────────────────────────────────────
+const CONFIG = {
+  company:   process.env.SIMPLYBOOK_COMPANY   || 'dein',
+  email:     process.env.SIMPLYBOOK_EMAIL     || 'denismanea123@gmail.com',
+  apiKey:    process.env.SIMPLYBOOK_API_KEY   || 'api_user_key_lPhbNTR8NMW31apDxxvPtls3WP7CeSI6GgkIl1uwl3c',
+  appToken:  process.env.SIMPLYBOOK_APP_TOKEN || 'eb308f30b177027286a6019b55464eaa180f0f64f5c466ba729183a48cc15019',
+};
+
+const SIMPLYBOOK_USER_API = 'https://user-api.simplybook.me';
+const SIMPLYBOOK_ADMIN    = 'https://user-api.simplybook.me/admin/';
+
+// ─────────────────────────────────────────────
+// HILFSFUNKTIONEN
+// ─────────────────────────────────────────────
 function timeToMinutes(time) {
   const clean = time.substring(0, 5);
   const [h, m] = clean.split(':').map(Number);
@@ -15,11 +32,38 @@ function minutesToTime(minutes) {
   return `${h}:${m}`;
 }
 
+// Holt einen frischen SimplyBook User-Token
+async function getSimplyBookToken() {
+  const resp = await axios.post(`${SIMPLYBOOK_USER_API}/login`, {
+    jsonrpc: '2.0',
+    method:  'getUserToken',
+    params:  [CONFIG.company, CONFIG.email, CONFIG.apiKey],
+    id:      1,
+  });
+  const token = resp.data?.result;
+  if (!token) {
+    throw new Error('SimplyBook Login fehlgeschlagen: ' + JSON.stringify(resp.data?.error));
+  }
+  return token;
+}
+
+// Baut den Standard-Header für Admin-API-Calls
+function adminHeaders(token) {
+  return {
+    'X-Company-Login':      CONFIG.company,
+    'X-User-Token':         token,
+    'X-Application-Token':  CONFIG.appToken,
+  };
+}
+
+// ─────────────────────────────────────────────
+// STAMMDATEN
+// ─────────────────────────────────────────────
 const MITARBEITER = {
   2: 'Avni',
   3: 'Besa',
   4: 'Lidia',
-  5: 'Eddy'
+  5: 'Eddy',
 };
 
 const SERVICES = {
@@ -37,19 +81,19 @@ const SERVICES = {
   13: { name: 'Girls Haarschnitt 0-11',       dauer: 30,  preis: 0  },
   14: { name: 'Girls Haarschnitt 11-15',      dauer: 30,  preis: 0  },
   15: { name: 'Boys Haarschnitt 0-11',        dauer: 30,  preis: 0  },
-  16: { name: 'Boys Haarschnitt 11-15',       dauer: 30,  preis: 0  }
+  16: { name: 'Boys Haarschnitt 11-15',       dauer: 30,  preis: 0  },
 };
 
 const ADDONS = {
-  1: { name: 'Augenbrauen zupfen',              dauer: 10, preis: 12 },
-  2: { name: 'Augenbrauen färben',              dauer: 10, preis: 9  },
-  3: { name: 'Bartrasur & Pflege',              dauer: 15, preis: 15 },
-  4: { name: 'Facewaxing',                      dauer: 15, preis: 25 },
-  5: { name: 'Gesichtentharung Fadentechnik',   dauer: 15, preis: 20 },
-  6: { name: 'Wimpern färben',                  dauer: 20, preis: 15 },
-  7: { name: 'Waschen, Schneiden & Stylen',     dauer: 80, preis: 49 },
-  8: { name: 'Cut & Go',                        dauer: 50, preis: 34 },
-  9: { name: 'Waschen & Stylen',                dauer: 25, preis: 24 }
+  1: { name: 'Augenbrauen zupfen',             dauer: 10, preis: 12 },
+  2: { name: 'Augenbrauen färben',             dauer: 10, preis: 9  },
+  3: { name: 'Bartrasur & Pflege',             dauer: 15, preis: 15 },
+  4: { name: 'Facewaxing',                     dauer: 15, preis: 25 },
+  5: { name: 'Gesichtentharung Fadentechnik',  dauer: 15, preis: 20 },
+  6: { name: 'Wimpern färben',                 dauer: 20, preis: 15 },
+  7: { name: 'Waschen, Schneiden & Stylen',    dauer: 80, preis: 49 },
+  8: { name: 'Cut & Go',                       dauer: 50, preis: 34 },
+  9: { name: 'Waschen & Stylen',               dauer: 25, preis: 24 },
 };
 
 const ERLAUBTE_ADDONS = {
@@ -67,20 +111,26 @@ const ERLAUBTE_ADDONS = {
   13: [],
   14: [],
   15: [],
-  16: []
+  16: [],
 };
 
+// ─────────────────────────────────────────────
+// KERNFUNKTION: Freie Zeitslots berechnen
+// ─────────────────────────────────────────────
 function getFreieZeiten(intervals, dauer) {
   const einzelne = [];
-  const bloecke = [];
+  const bloecke  = [];
+
   for (const interval of intervals) {
     const from_min = timeToMinutes(interval.from);
-    const to_min = timeToMinutes(interval.to);
-    const dauer_interval = to_min - from_min;
-    if (dauer_interval < dauer) continue;
-    let anzahl = 0;
+    const to_min   = timeToMinutes(interval.to);
+    if (to_min - from_min < dauer) continue;
+
+    // Zähle mögliche Slots (15-Min-Raster)
+    let anzahl  = 0;
     let current = from_min;
     while (current + dauer <= to_min) { anzahl++; current += 15; }
+
     if (anzahl <= 4) {
       current = from_min;
       while (current + dauer <= to_min) {
@@ -91,60 +141,49 @@ function getFreieZeiten(intervals, dauer) {
       bloecke.push(`ab ${minutesToTime(from_min)} bis ${minutesToTime(to_min)} Uhr`);
     }
   }
+
   return [...einzelne, ...bloecke];
 }
 
-
-// Route to get additional field hash - auto login
+// ─────────────────────────────────────────────
+// ROUTE: Additional Field Hash (Auto-Login)
+// ─────────────────────────────────────────────
 app.get('/get-field-hash', async (req, res) => {
   try {
-    const loginResp = await axios.post('https://user-api.simplybook.me/login', {
-      jsonrpc: '2.0',
-      method: 'getUserToken',
-      params: ['dein', 'denismanea123@gmail.com', 'api_user_key_lPhbNTR8NMW31apDxxvPtls3WP7CeSI6GgkIl1uwl3c'],
-      id: 1
-    });
+    const token = await getSimplyBookToken();
 
-    const token = loginResp.data.result;
-    if (!token) {
-      return res.status(400).json({ step: 'login', error: loginResp.data.error || 'Kein Token erhalten' });
-    }
-
-    const response = await axios.post('https://user-api.simplybook.me/admin/', {
+    const response = await axios.post(SIMPLYBOOK_ADMIN, {
       jsonrpc: '2.0',
-      method: 'getAdditionalFields',
-      params: [7],
-      id: 1
-    }, {
-      headers: {
-        'X-Company-Login': 'dein',
-        'X-User-Token': token,
-        'X-Application-Token': 'eb308f30b177027286a6019b55464eaa180f0f64f5c466ba729183a48cc15019'
-      }
-    });
+      method:  'getAdditionalFields',
+      params:  [7],
+      id:      1,
+    }, { headers: adminHeaders(token) });
 
     return res.json(response.data);
   } catch (error) {
     return res.status(500).json({
-      error: error.message,
-      detail: error.response ? error.response.data : null
+      error:  error.message,
+      detail: error.response?.data ?? null,
     });
   }
 });
 
+// ─────────────────────────────────────────────
+// ROUTE: Preis & Dauer berechnen
+// ─────────────────────────────────────────────
 app.post('/get-pricing', (req, res) => {
   const { service_id, addon_ids } = req.body;
-  const sid = parseInt(service_id);
+  const sid     = parseInt(service_id);
   const service = SERVICES[sid];
 
   if (!service) {
     return res.status(400).json({ error: `Unbekannter Service: ${service_id}` });
   }
 
-  const erlaubt = ERLAUBTE_ADDONS[sid] || [];
-  let gesamt_dauer = service.dauer;
-  let gesamt_preis = service.preis;
-  let zeilen = [];
+  const erlaubt      = ERLAUBTE_ADDONS[sid] || [];
+  let gesamt_dauer   = service.dauer;
+  let gesamt_preis   = service.preis;
+  const zeilen       = [];
 
   if (service.preis > 0) {
     zeilen.push(`${service.name} (${service.dauer} Min) - ${service.preis} €`);
@@ -152,7 +191,10 @@ app.post('/get-pricing', (req, res) => {
     zeilen.push(`${service.name} (${service.dauer} Min)`);
   }
 
-  const ids = Array.isArray(addon_ids) ? addon_ids : (addon_ids !== undefined && addon_ids !== null ? [addon_ids] : []);
+  const ids = Array.isArray(addon_ids)
+    ? addon_ids
+    : (addon_ids != null ? [addon_ids] : []);
+
   for (const aid of ids) {
     const aid_int = parseInt(aid);
     if (!erlaubt.includes(aid_int)) continue;
@@ -163,230 +205,207 @@ app.post('/get-pricing', (req, res) => {
     zeilen.push(`+ ${addon.name} (${addon.dauer} Min) - ${addon.preis} €`);
   }
 
-  if (gesamt_preis > 0) {
-    zeilen.push(`Gesamt: ${gesamt_dauer} Min | ${gesamt_preis} €`);
-  } else {
-    zeilen.push(`Gesamt: ${gesamt_dauer} Min`);
-  }
-
-  const kommentar_text = zeilen.join(' | ');
+  zeilen.push(
+    gesamt_preis > 0
+      ? `Gesamt: ${gesamt_dauer} Min | ${gesamt_preis} €`
+      : `Gesamt: ${gesamt_dauer} Min`
+  );
 
   return res.json({
     gesamt_dauer,
     gesamt_preis,
-    kommentar_text
+    kommentar_text: zeilen.join(' | '),
   });
 });
 
+// ─────────────────────────────────────────────
+// ROUTE: Verfügbarkeit prüfen
+// ─────────────────────────────────────────────
 app.post('/check-availability', async (req, res) => {
   const { company, token, app_token, datum, uhrzeit, service_id, provider_id, dauer } = req.body;
+
+  // Sonntag-Check (Mittag-Timestamp vermeidet Timezone-Probleme)
+  const wochentag = new Date(datum + 'T12:00:00').getDay();
+  if (wochentag === 0) {
+    return res.json({ verfuegbar: false, geschlossen: true, datum });
+  }
+
   try {
-    const response = await axios.post('https://user-api.simplybook.me/admin/', {
+    const response = await axios.post(SIMPLYBOOK_ADMIN, {
       jsonrpc: '2.0',
-      method: 'getAvailableTimeIntervals',
-      params: [datum, datum, parseInt(service_id), null],
-      id: 1
+      method:  'getAvailableTimeIntervals',
+      params:  [datum, datum, parseInt(service_id), null],
+      id:      1,
     }, {
       headers: {
-        'X-Company-Login': company,
-        'X-User-Token': token,
-        'X-Application-Token': app_token
-      }
+        'X-Company-Login':     company,
+        'X-User-Token':        token,
+        'X-Application-Token': app_token,
+      },
     });
 
     if (response.data.error) {
       return res.status(500).json({ error: 'SimplyBook Fehler', detail: response.data.error });
     }
 
-    const slots = response.data.result;
+    const slots      = response.data.result;
     if (!slots) {
       return res.status(500).json({ error: 'Keine Daten von SimplyBook', raw: response.data });
     }
 
-    const tagesslots = slots[datum] || {};
-
-    const wochentag = new Date(datum + 'T12:00:00').getDay();
-    if (wochentag === 0) {
-      return res.json({
-        verfuegbar: false,
-        geschlossen: true,
-        datum: datum
-      });
-    }
-
+    const tagesslots  = slots[datum] || {};
     const uhrzeit_min = timeToMinutes(uhrzeit);
-    const dauer_int = parseInt(dauer);
-    const end_min = uhrzeit_min + dauer_int;
+    const dauer_int   = parseInt(dauer);
+    const end_min     = uhrzeit_min + dauer_int;
+    const pid_raw     = provider_id && provider_id !== '' ? parseInt(provider_id) : 0;
 
-    let verfuegbare_mitarbeiter = [];
+    // Alle verfügbaren Mitarbeiter für diesen Slot finden
+    const verfuegbare_mitarbeiter = [];
     for (const [provider, intervals] of Object.entries(tagesslots)) {
       for (const interval of intervals) {
         const from_min = timeToMinutes(interval.from);
-        const to_min = timeToMinutes(interval.to);
+        const to_min   = timeToMinutes(interval.to);
         if (from_min <= uhrzeit_min && to_min >= end_min) {
           const pid = parseInt(provider);
-          verfuegbare_mitarbeiter.push({
-            id: pid,
-            name: MITARBEITER[pid] || `Mitarbeiter ${pid}`
-          });
+          verfuegbare_mitarbeiter.push({ id: pid, name: MITARBEITER[pid] || `Mitarbeiter ${pid}` });
           break;
         }
       }
     }
 
+    // Kein Mitarbeiter frei
     if (verfuegbare_mitarbeiter.length === 0) {
-      const pid_check = provider_id && provider_id !== "" ? parseInt(provider_id) : 0;
-      if (pid_check && pid_check !== 0) {
-        const mitarbeiter_intervals = tagesslots[pid_check] || tagesslots[String(pid_check)] || [];
-        const freie_zeiten_mitarbeiter = getFreieZeiten(mitarbeiter_intervals, dauer_int);
-        let alle_freie_zeiten = new Set();
-        for (const [provider, intervals] of Object.entries(tagesslots)) {
-          if (parseInt(provider) === pid_check) continue;
-          for (const interval of intervals) {
-            const from_min = timeToMinutes(interval.from);
-            const to_min = timeToMinutes(interval.to);
-            let current = from_min;
-            while (current + dauer_int <= to_min) {
-              alle_freie_zeiten.add(minutesToTime(current));
-              current += 15;
-            }
-          }
-        }
+      if (pid_raw) {
+        // Gewünschter Mitarbeiter: seine freien Zeiten + andere verfügbare Mitarbeiter zum gewünschten Slot
+        const mitarbeiter_intervals       = tagesslots[pid_raw] || tagesslots[String(pid_raw)] || [];
+        const freie_zeiten_mitarbeiter    = getFreieZeiten(mitarbeiter_intervals, dauer_int);
         const andere_verfuegbare_mitarbeiter = [];
         for (const [provider, intervals] of Object.entries(tagesslots)) {
-          if (parseInt(provider) === pid_check) continue;
+          if (parseInt(provider) === pid_raw) continue;
           for (const interval of intervals) {
             const from_min = timeToMinutes(interval.from);
-            const to_min = timeToMinutes(interval.to);
+            const to_min   = timeToMinutes(interval.to);
             if (from_min <= uhrzeit_min && to_min >= end_min) {
               const pid = parseInt(provider);
-              andere_verfuegbare_mitarbeiter.push({
-                id: pid,
-                name: MITARBEITER[pid] || `Mitarbeiter ${pid}`
-              });
+              andere_verfuegbare_mitarbeiter.push({ id: pid, name: MITARBEITER[pid] || `Mitarbeiter ${pid}` });
               break;
             }
           }
         }
         return res.json({
-          verfuegbar: false,
-          gewuenschter_mitarbeiter: MITARBEITER[pid_check] || `Mitarbeiter ${pid_check}`,
-          freie_zeiten_mitarbeiter: freie_zeiten_mitarbeiter,
-          andere_verfuegbare_mitarbeiter: andere_verfuegbare_mitarbeiter
+          verfuegbar:                    false,
+          gewuenschter_mitarbeiter:      MITARBEITER[pid_raw] || `Mitarbeiter ${pid_raw}`,
+          freie_zeiten_mitarbeiter,
+          andere_verfuegbare_mitarbeiter,
         });
       }
-      let alle_freie_zeiten = new Set();
-      for (const [provider, intervals] of Object.entries(tagesslots)) {
+
+      // Kein Mitarbeiter-Wunsch: nächste freie Slots über alle Mitarbeiter
+      const alle_freie_zeiten = new Set();
+      for (const intervals of Object.values(tagesslots)) {
         for (const interval of intervals) {
-          const from_min = timeToMinutes(interval.from);
-          const to_min = timeToMinutes(interval.to);
-          let current = from_min;
-          while (current + dauer_int <= to_min) {
+          let current = timeToMinutes(interval.from);
+          const to    = timeToMinutes(interval.to);
+          while (current + dauer_int <= to) {
             alle_freie_zeiten.add(minutesToTime(current));
             current += 15;
           }
         }
       }
-      const freie_zeiten = Array.from(alle_freie_zeiten).sort().slice(0, 8);
       return res.json({
-        verfuegbar: false,
+        verfuegbar:             false,
         verfuegbare_mitarbeiter: [],
-        freie_zeiten: freie_zeiten
+        freie_zeiten:            Array.from(alle_freie_zeiten).sort().slice(0, 8),
       });
     }
 
-    const pid_raw = provider_id && provider_id !== "" ? parseInt(provider_id) : 0;
-    if (pid_raw && pid_raw !== 0) {
+    // Mitarbeiter sind frei – wurde ein bestimmter gewünscht?
+    if (pid_raw) {
       const istFrei = verfuegbare_mitarbeiter.some(m => m.id === pid_raw);
       if (istFrei) {
         return res.json({
-          verfuegbar: true,
-          verfuegbare_mitarbeiter: verfuegbare_mitarbeiter,
-          freie_zeiten: [],
-          gewaehlter_mitarbeiter: MITARBEITER[pid_raw] || `Mitarbeiter ${pid_raw}`
-        });
-      } else {
-        const mitarbeiter_intervals = tagesslots[pid_raw] || tagesslots[String(pid_raw)] || [];
-        const freie_zeiten_mitarbeiter = getFreieZeiten(mitarbeiter_intervals, dauer_int);
-        const andere = verfuegbare_mitarbeiter.filter(m => m.id !== pid_raw);
-        return res.json({
-          verfuegbar: false,
-          gewuenschter_mitarbeiter: MITARBEITER[pid_raw] || `Mitarbeiter ${pid_raw}`,
-          freie_zeiten_mitarbeiter: freie_zeiten_mitarbeiter,
-          andere_verfuegbare_mitarbeiter: andere
+          verfuegbar:            true,
+          verfuegbare_mitarbeiter,
+          freie_zeiten:          [],
+          gewaehlter_mitarbeiter: MITARBEITER[pid_raw] || `Mitarbeiter ${pid_raw}`,
         });
       }
+      // Gewünschter Mitarbeiter nicht frei, aber andere schon
+      const mitarbeiter_intervals    = tagesslots[pid_raw] || tagesslots[String(pid_raw)] || [];
+      const freie_zeiten_mitarbeiter = getFreieZeiten(mitarbeiter_intervals, dauer_int);
+      return res.json({
+        verfuegbar:                   false,
+        gewuenschter_mitarbeiter:     MITARBEITER[pid_raw] || `Mitarbeiter ${pid_raw}`,
+        freie_zeiten_mitarbeiter,
+        andere_verfuegbare_mitarbeiter: verfuegbare_mitarbeiter.filter(m => m.id !== pid_raw),
+      });
     }
 
-    return res.json({
-      verfuegbar: true,
-      verfuegbare_mitarbeiter: verfuegbare_mitarbeiter,
-      freie_zeiten: []
-    });
+    return res.json({ verfuegbar: true, verfuegbare_mitarbeiter, freie_zeiten: [] });
 
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
 });
 
+// ─────────────────────────────────────────────
+// ROUTE: Freie Slots für einen Mitarbeiter/Tag
+// ─────────────────────────────────────────────
 app.post('/get-available-slots', async (req, res) => {
   const { company, token, app_token, datum, service_id, dauer, provider_id, uhrzeit } = req.body;
+
+  // Sonntag-Check
+  const wochentag = new Date(datum + 'T12:00:00').getDay();
+  if (wochentag === 0) {
+    return res.json({ geschlossen: true, datum });
+  }
+
   try {
-    const response = await axios.post('https://user-api.simplybook.me/admin/', {
+    const response = await axios.post(SIMPLYBOOK_ADMIN, {
       jsonrpc: '2.0',
-      method: 'getAvailableTimeIntervals',
-      params: [datum, datum, parseInt(service_id), null],
-      id: 1
+      method:  'getAvailableTimeIntervals',
+      params:  [datum, datum, parseInt(service_id), null],
+      id:      1,
     }, {
       headers: {
-        'X-Company-Login': company,
-        'X-User-Token': token,
-        'X-Application-Token': app_token
-      }
+        'X-Company-Login':     company,
+        'X-User-Token':        token,
+        'X-Application-Token': app_token,
+      },
     });
 
     if (response.data.error) {
       return res.status(500).json({ error: 'SimplyBook Fehler', detail: response.data.error });
     }
-
     const slots = response.data.result;
     if (!slots) {
       return res.status(500).json({ error: 'Keine Daten', raw: response.data });
     }
 
     const tagesslots = slots[datum] || {};
+    const dauer_int  = parseInt(dauer);
 
-    const wochentag = new Date(datum + 'T12:00:00').getDay();
-    if (wochentag === 0) {
-      return res.json({
-        geschlossen: true,
-        datum: datum
-      });
-    }
-
-    const dauer_int = parseInt(dauer);
-
+    // Freie Zeiten des gewünschten Mitarbeiters
     let freie_zeiten_gewuenscht = [];
-    if (provider_id && provider_id !== "") {
-      const pid = parseInt(provider_id);
+    if (provider_id && provider_id !== '') {
+      const pid       = parseInt(provider_id);
       const intervals = tagesslots[pid] || tagesslots[String(pid)] || [];
       freie_zeiten_gewuenscht = getFreieZeiten(intervals, dauer_int);
     }
 
+    // Andere Mitarbeiter die zum gewünschten Zeitpunkt frei wären
     let andere_mitarbeiter = [];
     if (uhrzeit) {
       const uhrzeit_min = timeToMinutes(uhrzeit);
-      const end_min = uhrzeit_min + dauer_int;
+      const end_min     = uhrzeit_min + dauer_int;
       for (const [prov_id, intervals] of Object.entries(tagesslots)) {
         if (parseInt(prov_id) === parseInt(provider_id)) continue;
         for (const interval of intervals) {
           const from_min = timeToMinutes(interval.from);
-          const to_min = timeToMinutes(interval.to);
+          const to_min   = timeToMinutes(interval.to);
           if (from_min <= uhrzeit_min && to_min >= end_min) {
-            andere_mitarbeiter.push({
-              id: parseInt(prov_id),
-              name: MITARBEITER[parseInt(prov_id)] || `Mitarbeiter ${prov_id}`
-            });
+            const pid = parseInt(prov_id);
+            andere_mitarbeiter.push({ id: pid, name: MITARBEITER[pid] || `Mitarbeiter ${prov_id}` });
             break;
           }
         }
@@ -394,9 +413,9 @@ app.post('/get-available-slots', async (req, res) => {
     }
 
     return res.json({
-      verfuegbar: freie_zeiten_gewuenscht.length > 0,
-      freie_zeiten: freie_zeiten_gewuenscht,
-      andere_mitarbeiter: andere_mitarbeiter
+      verfuegbar:    freie_zeiten_gewuenscht.length > 0,
+      freie_zeiten:  freie_zeiten_gewuenscht,
+      andere_mitarbeiter,
     });
 
   } catch (error) {
@@ -405,53 +424,58 @@ app.post('/get-available-slots', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// DEBUG: Roher SimplyBook Output für find-booking
+// ROUTE: Debug – roher SimplyBook Output
 // ─────────────────────────────────────────────
 app.post('/debug-booking', async (req, res) => {
   const { company, token, app_token, datum } = req.body;
   try {
-    const response = await axios.post('https://user-api.simplybook.me/admin/', {
+    const response = await axios.post(SIMPLYBOOK_ADMIN, {
       jsonrpc: '2.0',
-      method: 'getBookings',
-      params: [{ date_from: datum, date_to: datum }],
-      id: 1
+      method:  'getBookings',
+      params:  [{ date_from: datum, date_to: datum }],
+      id:      1,
     }, {
       headers: {
-        'X-Company-Login': company,
-        'X-User-Token': token,
-        'X-Application-Token': app_token
-      }
+        'X-Company-Login':     company,
+        'X-User-Token':        token,
+        'X-Application-Token': app_token,
+      },
     });
-    // Ersten Eintrag roh zurückgeben
+
     const bookings = response.data.result;
-    return res.json({ erster_eintrag: bookings && bookings.length > 0 ? bookings[0] : null, anzahl: bookings ? bookings.length : 0 });
+    return res.json({
+      erster_eintrag: bookings?.length > 0 ? bookings[0] : null,
+      anzahl:         bookings?.length ?? 0,
+    });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
 });
 
 // ─────────────────────────────────────────────
-// NEU: Termin suchen anhand Name + Datum
+// ROUTE: Termin suchen (Name + Datum + optional Uhrzeit)
 // ─────────────────────────────────────────────
 app.post('/find-booking', async (req, res) => {
   const { company, token, app_token, name, datum, uhrzeit } = req.body;
 
   if (!company || !token || !app_token || !name || !datum) {
-    return res.status(400).json({ error: 'Fehlende Parameter: company, token, app_token, name, datum erforderlich' });
+    return res.status(400).json({
+      error: 'Fehlende Parameter: company, token, app_token, name, datum erforderlich',
+    });
   }
 
   try {
-    const response = await axios.post('https://user-api.simplybook.me/admin/', {
+    const response = await axios.post(SIMPLYBOOK_ADMIN, {
       jsonrpc: '2.0',
-      method: 'getBookings',
-      params: [{ date_from: datum, date_to: datum }],
-      id: 1
+      method:  'getBookings',
+      params:  [{ date_from: datum, date_to: datum }],
+      id:      1,
     }, {
       headers: {
-        'X-Company-Login': company,
-        'X-User-Token': token,
-        'X-Application-Token': app_token
-      }
+        'X-Company-Login':     company,
+        'X-User-Token':        token,
+        'X-Application-Token': app_token,
+      },
     });
 
     if (response.data.error) {
@@ -459,15 +483,15 @@ app.post('/find-booking', async (req, res) => {
     }
 
     const bookings = response.data.result;
-    if (!bookings || !Array.isArray(bookings)) {
+    if (!Array.isArray(bookings)) {
       return res.json({ gefunden: false, buchungen: [] });
     }
 
-    // Nach Name filtern
+    // Nach Name filtern (Vorname, Nachname oder Vollname)
     const nameLower = name.toLowerCase().trim();
-    const treffer = bookings.filter(b => {
-      const fname = (b.client_name || '').toLowerCase();
-      const fullName = (b.client || '').toLowerCase();
+    const treffer   = bookings.filter(b => {
+      const fname    = (b.client_name || '').toLowerCase();
+      const fullName = (b.client      || '').toLowerCase();
       return fname.includes(nameLower) || fullName.includes(nameLower);
     });
 
@@ -475,42 +499,41 @@ app.post('/find-booking', async (req, res) => {
       return res.json({ gefunden: false, buchungen: [] });
     }
 
-    // Details abrufen
+    // Details zu jedem Treffer laden
     const result = await Promise.all(treffer.map(async (b) => {
       try {
-        const detailResp = await axios.post('https://user-api.simplybook.me/admin/', {
+        const detailResp = await axios.post(SIMPLYBOOK_ADMIN, {
           jsonrpc: '2.0',
-          method: 'getBookingDetails',
-          params: [parseInt(b.id)],
-          id: 1
+          method:  'getBookingDetails',
+          params:  [parseInt(b.id)],
+          id:      1,
         }, {
           headers: {
-            'X-Company-Login': company,
-            'X-User-Token': token,
-            'X-Application-Token': app_token
-          }
+            'X-Company-Login':     company,
+            'X-User-Token':        token,
+            'X-Application-Token': app_token,
+          },
         });
-        const d = detailResp.data.result || {};
+
+        const d       = detailResp.data.result || {};
         const startDT = d.start_date_time || d.start_datetime || '';
         return {
-          booking_id: b.id,
-          name: d.client_name || d.clientName || b.client_name || '',
-          datum: startDT ? startDT.substring(0, 10) : datum,
-          uhrzeit: startDT ? startDT.substring(11, 16) : '',
-          service: d.event_name || d.service_name || d.eventName || '',
-          mitarbeiter: d.unit_name || d.provider_name || d.unitName || ''
+          booking_id:  b.id,
+          name:        d.client_name  || d.clientName  || b.client_name || '',
+          datum:       startDT ? startDT.substring(0, 10) : datum,
+          uhrzeit:     startDT ? startDT.substring(11, 16) : '',
+          service:     d.event_name   || d.service_name || d.eventName  || '',
+          mitarbeiter: d.unit_name    || d.provider_name || d.unitName  || '',
         };
-      } catch (e) {
+      } catch {
         return { booking_id: b.id, name: b.client_name || '', datum, uhrzeit: '', service: '', mitarbeiter: '' };
       }
     }));
 
-    // Nach Uhrzeit filtern wenn angegeben (Format HH:MM)
-    let gefiltert = result;
-    if (uhrzeit && uhrzeit.trim() !== '') {
-      const uhrzeitClean = uhrzeit.trim().substring(0, 5);
-      gefiltert = result.filter(b => b.uhrzeit === uhrzeitClean);
-    }
+    // Optional nach Uhrzeit filtern
+    const gefiltert = uhrzeit?.trim()
+      ? result.filter(b => b.uhrzeit === uhrzeit.trim().substring(0, 5))
+      : result;
 
     if (gefiltert.length === 0) {
       return res.json({ gefunden: false, buchungen: [] });
@@ -524,27 +547,29 @@ app.post('/find-booking', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// NEU: Termin stornieren anhand Booking-ID
+// ROUTE: Termin stornieren
 // ─────────────────────────────────────────────
 app.post('/cancel-booking', async (req, res) => {
   const { company, token, app_token, booking_id } = req.body;
 
   if (!company || !token || !app_token || !booking_id) {
-    return res.status(400).json({ error: 'Fehlende Parameter: company, token, app_token, booking_id erforderlich' });
+    return res.status(400).json({
+      error: 'Fehlende Parameter: company, token, app_token, booking_id erforderlich',
+    });
   }
 
   try {
-    const response = await axios.post('https://user-api.simplybook.me/admin/', {
+    const response = await axios.post(SIMPLYBOOK_ADMIN, {
       jsonrpc: '2.0',
-      method: 'cancelBooking',
-      params: [parseInt(booking_id)],
-      id: 1
+      method:  'cancelBooking',
+      params:  [parseInt(booking_id)],
+      id:      1,
     }, {
       headers: {
-        'X-Company-Login': company,
-        'X-User-Token': token,
-        'X-Application-Token': app_token
-      }
+        'X-Company-Login':     company,
+        'X-User-Token':        token,
+        'X-Application-Token': app_token,
+      },
     });
 
     if (response.data.error) {
@@ -552,17 +577,15 @@ app.post('/cancel-booking', async (req, res) => {
     }
 
     const success = response.data.result === true || response.data.result === 1;
-
-    return res.json({
-      erfolg: success,
-      booking_id: parseInt(booking_id),
-      raw: response.data.result
-    });
+    return res.json({ erfolg: success, booking_id: parseInt(booking_id) });
 
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
 });
 
+// ─────────────────────────────────────────────
+// SERVER START
+// ─────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server läuft auf Port ${PORT}`));
