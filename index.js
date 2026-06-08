@@ -465,7 +465,9 @@ app.post('/find-booking', async (req, res) => {
   }
 
   // Heute bis 6 Monate in die Zukunft suchen
-  const heute = new Date().toISOString().substring(0, 10);
+  // Datum in deutscher Zeit (UTC+2) berechnen
+  const nowDE = new Date(new Date().getTime() + 2 * 60 * 60 * 1000);
+  const heute = nowDE.toISOString().substring(0, 10);
   const bisDate = new Date();
   bisDate.setMonth(bisDate.getMonth() + 6);
   const bis = bisDate.toISOString().substring(0, 10);
@@ -558,6 +560,59 @@ app.post('/find-booking', async (req, res) => {
     }
 
     return res.json({ gefunden: true, buchungen: result, liste_text });
+
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+
+// ─────────────────────────────────────────────
+// ROUTE: Termin per Wahl-Nummer stornieren
+// ─────────────────────────────────────────────
+app.post('/select-and-cancel', async (req, res) => {
+  const { company, token, app_token, wahl, buchungen } = req.body;
+
+  if (!company || !token || !app_token || !wahl || !buchungen) {
+    return res.status(400).json({
+      error: 'Fehlende Parameter: company, token, app_token, wahl, buchungen erforderlich',
+    });
+  }
+
+  const wahlInt = parseInt(wahl);
+  const liste = Array.isArray(buchungen) ? buchungen : JSON.parse(buchungen);
+
+  if (wahlInt < 1 || wahlInt > liste.length) {
+    return res.status(400).json({ error: `Ungültige Wahl: ${wahl}. Bitte Nummer zwischen 1 und ${liste.length} wählen.` });
+  }
+
+  const termin = liste[wahlInt - 1];
+  const booking_id = parseInt(termin.booking_id);
+
+  try {
+    const response = await axios.post(SIMPLYBOOK_ADMIN, {
+      jsonrpc: '2.0',
+      method:  'cancelBooking',
+      params:  [booking_id],
+      id:      1,
+    }, {
+      headers: {
+        'X-Company-Login':     company,
+        'X-User-Token':        token,
+        'X-Application-Token': app_token,
+      },
+    });
+
+    if (response.data.error) {
+      return res.status(500).json({ error: 'SimplyBook Fehler', detail: response.data.error });
+    }
+
+    const success = response.data.result === true || response.data.result === 1;
+    return res.json({
+      erfolg:     success,
+      booking_id: booking_id,
+      termin:     termin,
+    });
 
   } catch (error) {
     return res.status(500).json({ error: error.message });
