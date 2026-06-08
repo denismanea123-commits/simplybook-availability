@@ -530,7 +530,18 @@ app.post('/find-booking', async (req, res) => {
       }
     }));
 
-    return res.json({ gefunden: true, buchungen: result });
+    // Fertige Liste für WhatsApp zusammenbauen
+    const datumFormatiert = new Date(datum + 'T12:00:00').toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    let liste_text = '';
+    if (result.length === 1) {
+      const t = result[0];
+      liste_text = `Ich habe folgenden Termin gefunden für ${t.name} am ${datumFormatiert}:\n\n• ${t.uhrzeit} Uhr – ${t.service}\n\nMöchten Sie diesen Termin stornieren? (Ja / Nein)`;
+    } else {
+      const zeilen = result.map((t, i) => `${i + 1}. ${t.uhrzeit} Uhr – ${t.service}`).join('\n');
+      liste_text = `Ich habe folgende Termine gefunden für ${result[0].name} am ${datumFormatiert}:\n\n${zeilen}\n\nWelchen Termin möchten Sie stornieren? Bitte Nummer oder Uhrzeit angeben.`;
+    }
+
+    return res.json({ gefunden: true, buchungen: result, liste_text });
 
   } catch (error) {
     return res.status(500).json({ error: error.message });
