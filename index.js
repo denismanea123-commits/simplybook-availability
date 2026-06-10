@@ -151,15 +151,27 @@ function getFreieZeiten(intervals, dauer) {
 app.get('/get-field-hash', async (req, res) => {
   try {
     const token = await getSimplyBookToken();
+    const sid = parseInt(req.query.service_id) || 7;
 
-    const response = await axios.post(SIMPLYBOOK_ADMIN, {
+    const fieldsResp = await axios.post(SIMPLYBOOK_ADMIN, {
       jsonrpc: '2.0',
       method:  'getAdditionalFields',
-      params:  [7],
+      params:  [sid],
       id:      1,
     }, { headers: adminHeaders(token) });
 
-    return res.json(response.data);
+    const requireResp = await axios.post(SIMPLYBOOK_ADMIN, {
+      jsonrpc: '2.0',
+      method:  'getCompanyParam',
+      params:  ['require_fields'],
+      id:      1,
+    }, { headers: adminHeaders(token) });
+
+    return res.json({
+      service_id:      sid,
+      additionalFields: fieldsResp.data.result,
+      require_fields:   requireResp.data.result,
+    });
   } catch (error) {
     return res.status(500).json({
       error:  error.message,
@@ -740,9 +752,10 @@ app.post('/book', async (req, res) => {
     }
 
     // 1. Client anlegen / holen -> liefert clientId (Zahl)
-    // SimplyBook verlangt gültige E-Mail + Telefon -> Platzhalter falls leer
-    const clientEmail = (email && String(email).trim() !== '') ? email : 'termin@hairtime-avni.de';
-    const clientPhone = (phone && String(phone).trim() !== '') ? phone : '0000000000';
+    // Eindeutige E-Mail + Telefon (wie funktionierender WhatsApp-Bot)
+    const stamp = Date.now().toString().slice(-9);
+    const clientEmail = (email && String(email).trim() !== '') ? email : `${stamp}@gmail.com`;
+    const clientPhone = (phone && String(phone).trim() !== '') ? phone : `+49${stamp}`;
     const clientResp = await axios.post(SIMPLYBOOK_ADMIN, {
       jsonrpc: '2.0',
       method:  'addClient',
