@@ -706,7 +706,7 @@ app.post('/cancel-booking', async (req, res) => {
 // ROUTE: Termin buchen
 // ─────────────────────────────────────────────
 app.post('/book', async (req, res) => {
-  const { datum, uhrzeit, service_id, provider_id, name, email, phone } = req.body;
+  const { datum, uhrzeit, service_id, provider_id, name, email, phone, addon_ids } = req.body;
 
   if (!datum || !uhrzeit || !service_id) {
     return res.status(400).json({
@@ -722,9 +722,29 @@ app.post('/book', async (req, res) => {
     if (!service) {
       return res.status(400).json({ error: `Unbekannter Service: ${service_id}` });
     }
+
+    // Extras (Add-ons): Dauer addieren + Kommentartext bauen
+    const erlaubt = ERLAUBTE_ADDONS[sid] || [];
+    const addonIds = Array.isArray(addon_ids) ? addon_ids
+                   : (addon_ids != null && addon_ids !== '' ? [addon_ids] : []);
+    let extraDauer = 0;
+    const kommentarZeilen = [];
+    for (const aid of addonIds) {
+      const aidInt = parseInt(aid);
+      if (!erlaubt.includes(aidInt)) continue;
+      const addon = ADDONS[aidInt];
+      if (!addon) continue;
+      extraDauer += addon.dauer;
+      kommentarZeilen.push(`+ ${addon.name}`);
+    }
+    const gesamtDauer = service.dauer + extraDauer;
+    const kommentarText = kommentarZeilen.length
+      ? `${service.name} ${kommentarZeilen.join(' ')}`
+      : service.name;
+
     const startTime = uhrzeit.substring(0, 5) + ':00';
     const startMin  = timeToMinutes(uhrzeit);
-    const endTime   = minutesToTime(startMin + service.dauer) + ':00';
+    const endTime   = minutesToTime(startMin + gesamtDauer) + ':00';
 
     // provider_id: falls leer -> automatisch freien Mitarbeiter zum Slot wählen
     let pid = provider_id && String(provider_id).trim() !== '' ? parseInt(provider_id) : null;
@@ -737,7 +757,7 @@ app.post('/book', async (req, res) => {
       }, { headers: adminHeaders(token) });
 
       const tagesslots = (slotResp.data.result || {})[datum] || {};
-      const endMin = startMin + service.dauer;
+      const endMin = startMin + gesamtDauer;
       for (const [prov, intervals] of Object.entries(tagesslots)) {
         for (const interval of intervals) {
           const from = timeToMinutes(interval.from);
@@ -769,10 +789,12 @@ app.post('/book', async (req, res) => {
     const clientId = clientResp.data.result;
 
     // 2. Buchen mit korrekter Signatur
+    // additional: Kommentartext ins Intake-Feld (wie funktionierender WhatsApp-Bot)
+    const additional = { "b2c8e5d8f33ea5a1dc20d666650c4a0f": kommentarText };
     const bookResp = await axios.post(SIMPLYBOOK_ADMIN, {
       jsonrpc: '2.0',
       method:  'book',
-      params:  [ sid, pid, clientId, datum, startTime, datum, endTime, 0, {}, 1 ],
+      params:  [ sid, pid, clientId, datum, startTime, datum, endTime, 0, additional, 1 ],
       id: 1,
     }, { headers: adminHeaders(token) });
 
@@ -788,6 +810,7 @@ app.post('/book', async (req, res) => {
       datum,
       uhrzeit:          startTime.substring(0, 5),
       service:          service.name,
+      extras:           kommentarZeilen.join(' '),
       buchung:          bookResp.data.result,
     });
 
