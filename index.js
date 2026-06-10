@@ -724,13 +724,17 @@ app.post('/book', async (req, res) => {
     }
 
     // Extras (Add-ons): Dauer addieren + Kommentartext bauen
-    // addon_ids kann Array [3], String "3", Komma-String "3,1" oder leer sein
+    // addon_ids kann sein: Array [3], String "3", "[3]", "3,1", "[3,1]" oder leer
     const erlaubt = ERLAUBTE_ADDONS[sid] || [];
     let addonIds = [];
     if (Array.isArray(addon_ids)) {
       addonIds = addon_ids;
     } else if (addon_ids != null && String(addon_ids).trim() !== '') {
-      addonIds = String(addon_ids).split(',');
+      // Klammern, Anführungszeichen und Leerzeichen entfernen, dann nach Komma splitten
+      addonIds = String(addon_ids)
+        .replace(/[\[\]"' ]/g, '')
+        .split(',')
+        .filter(x => x !== '');
     }
     let extraDauer = 0;
     const kommentarZeilen = [];
