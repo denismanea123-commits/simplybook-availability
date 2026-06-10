@@ -723,21 +723,27 @@ app.post('/book', async (req, res) => {
       return res.status(400).json({ error: `Unbekannter Service: ${service_id}` });
     }
 
-    // Extras (Add-ons): Dauer addieren + Kommentartext bauen
+    // Extras (Add-ons): Dauer + Preis addieren, vollen Preistext bauen (wie get-pricing)
     // addon_ids kann sein: Array [3], String "3", "[3]", "3,1", "[3,1]" oder leer
     const erlaubt = ERLAUBTE_ADDONS[sid] || [];
     let addonIds = [];
     if (Array.isArray(addon_ids)) {
       addonIds = addon_ids;
     } else if (addon_ids != null && String(addon_ids).trim() !== '') {
-      // Klammern, Anführungszeichen und Leerzeichen entfernen, dann nach Komma splitten
       addonIds = String(addon_ids)
         .replace(/[\[\]"' ]/g, '')
         .split(',')
         .filter(x => x !== '');
     }
     let extraDauer = 0;
-    const kommentarZeilen = [];
+    let extraPreis = 0;
+    const preisZeilen = [];
+    // Hauptservice-Zeile
+    if (service.preis > 0) {
+      preisZeilen.push(`${service.name} (${service.dauer} Min) - ${service.preis} €`);
+    } else {
+      preisZeilen.push(`${service.name} (${service.dauer} Min)`);
+    }
     for (const aid of addonIds) {
       const aidInt = parseInt(aid);
       if (isNaN(aidInt)) continue;
@@ -745,12 +751,17 @@ app.post('/book', async (req, res) => {
       const addon = ADDONS[aidInt];
       if (!addon) continue;
       extraDauer += addon.dauer;
-      kommentarZeilen.push(`+ ${addon.name}`);
+      extraPreis += addon.preis;
+      preisZeilen.push(`+ ${addon.name} (${addon.dauer} Min) - ${addon.preis} €`);
     }
     const gesamtDauer = service.dauer + extraDauer;
-    const kommentarText = kommentarZeilen.length
-      ? `${service.name} ${kommentarZeilen.join(' ')}`
-      : service.name;
+    const gesamtPreis = service.preis + extraPreis;
+    preisZeilen.push(
+      gesamtPreis > 0
+        ? `Gesamt: ${gesamtDauer} Min | ${gesamtPreis} €`
+        : `Gesamt: ${gesamtDauer} Min`
+    );
+    const kommentarText = preisZeilen.join(' | ');
 
     const startTime = uhrzeit.substring(0, 5) + ':00';
     const startMin  = timeToMinutes(uhrzeit);
@@ -820,7 +831,7 @@ app.post('/book', async (req, res) => {
       datum,
       uhrzeit:          startTime.substring(0, 5),
       service:          service.name,
-      extras:           kommentarZeilen.join(' '),
+      extras:           kommentarText,
       buchung:          bookResp.data.result,
     });
 
