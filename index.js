@@ -696,16 +696,15 @@ app.post('/cancel-booking', async (req, res) => {
 app.post('/book', async (req, res) => {
   const { datum, uhrzeit, service_id, provider_id, name, email, phone } = req.body;
 
-  if (!datum || !uhrzeit || !service_id || !provider_id) {
+  if (!datum || !uhrzeit || !service_id) {
     return res.status(400).json({
-      error: 'Fehlende Parameter: datum, uhrzeit, service_id, provider_id erforderlich',
+      error: 'Fehlende Parameter: datum, uhrzeit, service_id erforderlich',
     });
   }
 
   try {
     const token = await getSimplyBookToken();
     const sid   = parseInt(service_id);
-    const pid   = parseInt(provider_id);
 
     const service = SERVICES[sid];
     if (!service) {
@@ -714,6 +713,31 @@ app.post('/book', async (req, res) => {
     const startTime = uhrzeit.substring(0, 5) + ':00';
     const startMin  = timeToMinutes(uhrzeit);
     const endTime   = minutesToTime(startMin + service.dauer) + ':00';
+
+    // provider_id: falls leer -> automatisch freien Mitarbeiter zum Slot wählen
+    let pid = provider_id && String(provider_id).trim() !== '' ? parseInt(provider_id) : null;
+    if (!pid) {
+      const slotResp = await axios.post(SIMPLYBOOK_ADMIN, {
+        jsonrpc: '2.0',
+        method:  'getAvailableTimeIntervals',
+        params:  [datum, datum, sid, null],
+        id:      1,
+      }, { headers: adminHeaders(token) });
+
+      const tagesslots = (slotResp.data.result || {})[datum] || {};
+      const endMin = startMin + service.dauer;
+      for (const [prov, intervals] of Object.entries(tagesslots)) {
+        for (const interval of intervals) {
+          const from = timeToMinutes(interval.from);
+          const to   = timeToMinutes(interval.to);
+          if (from <= startMin && to >= endMin) { pid = parseInt(prov); break; }
+        }
+        if (pid) break;
+      }
+      if (!pid) {
+        return res.status(409).json({ erfolg: false, fehler: 'Kein freier Mitarbeiter zu diesem Zeitpunkt' });
+      }
+    }
 
     // 1. Client anlegen / holen -> liefert clientId (Zahl)
     const clientResp = await axios.post(SIMPLYBOOK_ADMIN, {
@@ -740,7 +764,16 @@ app.post('/book', async (req, res) => {
       return res.status(500).json({ erfolg: false, schritt: 'book', fehler: bookResp.data.error });
     }
 
-    return res.json({ erfolg: true, buchung: bookResp.data.result });
+    const mitarbeiter_name = MITARBEITER[pid] || `Mitarbeiter ${pid}`;
+    return res.json({
+      erfolg:           true,
+      mitarbeiter:      mitarbeiter_name,
+      mitarbeiter_id:   pid,
+      datum,
+      uhrzeit:          startTime.substring(0, 5),
+      service:          service.name,
+      buchung:          bookResp.data.result,
+    });
 
   } catch (error) {
     return res.status(500).json({ erfolg: false, error: error.message, detail: error.response?.data ?? null });
