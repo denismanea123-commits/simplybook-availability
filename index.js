@@ -691,6 +691,63 @@ app.post('/cancel-booking', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// ROUTE: Termin buchen
+// ─────────────────────────────────────────────
+app.post('/book', async (req, res) => {
+  const { datum, uhrzeit, service_id, provider_id, name, email, phone } = req.body;
+
+  if (!datum || !uhrzeit || !service_id || !provider_id) {
+    return res.status(400).json({
+      error: 'Fehlende Parameter: datum, uhrzeit, service_id, provider_id erforderlich',
+    });
+  }
+
+  try {
+    const token = await getSimplyBookToken();
+    const sid   = parseInt(service_id);
+    const pid   = parseInt(provider_id);
+
+    const service = SERVICES[sid];
+    if (!service) {
+      return res.status(400).json({ error: `Unbekannter Service: ${service_id}` });
+    }
+    const startTime = uhrzeit.substring(0, 5) + ':00';
+    const startMin  = timeToMinutes(uhrzeit);
+    const endTime   = minutesToTime(startMin + service.dauer) + ':00';
+
+    // 1. Client anlegen / holen -> liefert clientId (Zahl)
+    const clientResp = await axios.post(SIMPLYBOOK_ADMIN, {
+      jsonrpc: '2.0',
+      method:  'addClient',
+      params:  [{ name: name || 'Kunde', email: email || '', phone: phone || '' }],
+      id:      1,
+    }, { headers: adminHeaders(token) });
+
+    if (clientResp.data.error) {
+      return res.status(500).json({ erfolg: false, schritt: 'addClient', fehler: clientResp.data.error });
+    }
+    const clientId = clientResp.data.result;
+
+    // 2. Buchen mit korrekter Signatur
+    const bookResp = await axios.post(SIMPLYBOOK_ADMIN, {
+      jsonrpc: '2.0',
+      method:  'book',
+      params:  [ sid, pid, clientId, datum, startTime, datum, endTime, 0, {}, 1 ],
+      id: 1,
+    }, { headers: adminHeaders(token) });
+
+    if (bookResp.data.error) {
+      return res.status(500).json({ erfolg: false, schritt: 'book', fehler: bookResp.data.error });
+    }
+
+    return res.json({ erfolg: true, buchung: bookResp.data.result });
+
+  } catch (error) {
+    return res.status(500).json({ erfolg: false, error: error.message, detail: error.response?.data ?? null });
+  }
+});
+
+// ─────────────────────────────────────────────
 // SERVER START
 // ─────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
