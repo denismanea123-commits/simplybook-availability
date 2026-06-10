@@ -740,10 +740,13 @@ app.post('/book', async (req, res) => {
     }
 
     // 1. Client anlegen / holen -> liefert clientId (Zahl)
+    // SimplyBook verlangt gültige E-Mail + Telefon -> Platzhalter falls leer
+    const clientEmail = (email && String(email).trim() !== '') ? email : 'termin@hairtime-avni.de';
+    const clientPhone = (phone && String(phone).trim() !== '') ? phone : '0000000000';
     const clientResp = await axios.post(SIMPLYBOOK_ADMIN, {
       jsonrpc: '2.0',
       method:  'addClient',
-      params:  [{ name: name || 'Kunde', email: email || '', phone: phone || '' }],
+      params:  [{ name: name || 'Kunde', email: clientEmail, phone: clientPhone }],
       id:      1,
     }, { headers: adminHeaders(token) });
 
